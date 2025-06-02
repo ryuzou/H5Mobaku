@@ -121,11 +121,11 @@ void test_performance(struct h5r *h5_ctx, cmph_t *hash) {
     // Test time series performance
     printf("\n3. Time series access performance:\n");
     start = clock();
-    int32_t *ts = h5mobaku_read_population_time_series(h5_ctx, hash, test_mesh, 0, 167); // 1 week
+    int32_t *ts = h5mobaku_read_population_time_series(h5_ctx, hash, test_mesh, 0, 999);
     end = clock();
     
     if (ts) {
-        printf("  Time for 168 hours: %.6f seconds\n", 
+        printf("  Time for 1000 hours: %.6f seconds\n",
                ((double)(end - start)) / CLOCKS_PER_SEC);
         h5mobaku_free_data(ts);
     }

@@ -10,6 +10,52 @@
 #include <hdf5.h>
 #include <time.h>
 
+// Helper functions for common operations
+static int validate_h5mobaku_context(struct h5mobaku *ctx) {
+    if (!ctx) {
+        fprintf(stderr, "Error: Invalid h5mobaku context\n");
+        return -1;
+    }
+    if (!ctx->h5r_ctx) {
+        fprintf(stderr, "Error: Invalid h5r context in h5mobaku\n");
+        return -1;
+    }
+    return 0;
+}
+
+static int validate_basic_params(struct h5r *h5_ctx, cmph_t *hash) {
+    if (!h5_ctx) {
+        fprintf(stderr, "Error: Invalid h5r context\n");
+        return -1;
+    }
+    if (!hash) {
+        fprintf(stderr, "Error: Invalid hash context\n");
+        return -1;
+    }
+    return 0;
+}
+
+static uint64_t get_mesh_index(cmph_t *hash, uint32_t mesh_id) {
+    uint32_t mesh_index = search_id(hash, mesh_id);
+    if (mesh_index == MESHID_NOT_FOUND || mesh_index >= 1553332) {
+        return UINT64_MAX; // Error indicator
+    }
+    return (uint64_t)mesh_index;
+}
+
+static void* safe_malloc(size_t size, const char *description) {
+    void *ptr = malloc(size);
+    if (!ptr) {
+        fprintf(stderr, "Error: Memory allocation failed for %s\n", description);
+    }
+    return ptr;
+}
+
+static void cleanup_multi_arrays(uint64_t *mesh_indices, int32_t *results) {
+    if (mesh_indices) free(mesh_indices);
+    if (results) free(results);
+}
+
 // Initialize h5mobaku wrapper
 int h5mobaku_open(const char *path, struct h5mobaku **out) {
     if (!path || !out) {
@@ -134,10 +180,7 @@ static int datetime_to_index(struct h5mobaku *ctx, const char *datetime_str) {
 
 // Time-based wrapper functions
 int32_t h5mobaku_read_population_single_at_time(struct h5mobaku *ctx, cmph_t *hash, uint32_t mesh_id, const char *datetime_str) {
-    if (!ctx || !ctx->h5r_ctx) {
-        fprintf(stderr, "Error: Invalid h5mobaku context\n");
-        return -1;
-    }
+    if (validate_h5mobaku_context(ctx) < 0) return -1;
     
     int time_index = datetime_to_index(ctx, datetime_str);
     if (time_index < 0) return -1;
@@ -146,10 +189,7 @@ int32_t h5mobaku_read_population_single_at_time(struct h5mobaku *ctx, cmph_t *ha
 }
 
 int32_t* h5mobaku_read_population_multi_at_time(struct h5mobaku *ctx, cmph_t *hash, uint32_t *mesh_ids, size_t num_meshes, const char *datetime_str) {
-    if (!ctx || !ctx->h5r_ctx) {
-        fprintf(stderr, "Error: Invalid h5mobaku context\n");
-        return NULL;
-    }
+    if (validate_h5mobaku_context(ctx) < 0) return NULL;
     
     int time_index = datetime_to_index(ctx, datetime_str);
     if (time_index < 0) return NULL;
@@ -158,10 +198,7 @@ int32_t* h5mobaku_read_population_multi_at_time(struct h5mobaku *ctx, cmph_t *ha
 }
 
 int32_t* h5mobaku_read_population_time_series_between(struct h5mobaku *ctx, cmph_t *hash, uint32_t mesh_id, const char *start_datetime_str, const char *end_datetime_str) {
-    if (!ctx || !ctx->h5r_ctx) {
-        fprintf(stderr, "Error: Invalid h5mobaku context\n");
-        return NULL;
-    }
+    if (validate_h5mobaku_context(ctx) < 0) return NULL;
     
     int start_index = datetime_to_index(ctx, start_datetime_str);
     int end_index = datetime_to_index(ctx, end_datetime_str);
@@ -174,20 +211,19 @@ int32_t* h5mobaku_read_population_time_series_between(struct h5mobaku *ctx, cmph
 
 // Read population data for a single mesh at a specific time index
 int32_t h5mobaku_read_population_single(struct h5r *h5_ctx, cmph_t *hash, uint32_t mesh_id, int time_index) {
-    if (!h5_ctx || !hash || time_index < 0) {
+    if (validate_basic_params(h5_ctx, hash) < 0 || time_index < 0) {
         fprintf(stderr, "Error: Invalid parameters in h5mobaku_read_population_single\n");
         return -1;
     }
     
-    // Get mesh index using CMPH hash
-    uint32_t mesh_index = search_id(hash, mesh_id);
-    if (mesh_index == MESHID_NOT_FOUND || mesh_index >= 1553332) {  // Check for error or bounds
+    uint64_t mesh_index = get_mesh_index(hash, mesh_id);
+    if (mesh_index == UINT64_MAX) {
+        fprintf(stderr, "Error: Mesh ID %u not found or invalid\n", mesh_id);
         return -1;
     }
     
-    // Read only the specific cell
     int32_t value;
-    int ret = h5r_read_cell(h5_ctx, (uint64_t)time_index, (uint64_t)mesh_index, &value);
+    int ret = h5r_read_cell(h5_ctx, (uint64_t)time_index, mesh_index, &value);
     if (ret < 0) {
         fprintf(stderr, "Error: Failed to read cell at time %d, mesh %u from HDF5 file\n", time_index, mesh_id);
         return -1;
@@ -198,44 +234,34 @@ int32_t h5mobaku_read_population_single(struct h5r *h5_ctx, cmph_t *hash, uint32
 
 // Read population data for multiple meshes at a specific time index
 int32_t* h5mobaku_read_population_multi(struct h5r *h5_ctx, cmph_t *hash, uint32_t *mesh_ids, size_t num_meshes, int time_index) {
-    if (!h5_ctx || !hash || !mesh_ids || num_meshes == 0 || time_index < 0) {
+    if (validate_basic_params(h5_ctx, hash) < 0 || !mesh_ids || num_meshes == 0 || time_index < 0) {
         fprintf(stderr, "Error: Invalid parameters in h5mobaku_read_population_multi\n");
         return NULL;
     }
     
-    // Allocate result array
-    int32_t *results = (int32_t*)malloc(num_meshes * sizeof(int32_t));
-    if (!results) {
-        fprintf(stderr, "Error: Memory allocation failed for results array\n");
-        return NULL;
-    }
+    int32_t *results = (int32_t*)safe_malloc(num_meshes * sizeof(int32_t), "results array");
+    if (!results) return NULL;
     
-    // Get mesh indices
-    uint64_t *mesh_indices = (uint64_t*)malloc(num_meshes * sizeof(uint64_t));
+    uint64_t *mesh_indices = (uint64_t*)safe_malloc(num_meshes * sizeof(uint64_t), "mesh indices");
     if (!mesh_indices) {
-        fprintf(stderr, "Error: Memory allocation failed for mesh indices\n");
         free(results);
         return NULL;
     }
     
     // Convert mesh IDs to indices
     for (size_t i = 0; i < num_meshes; i++) {
-        uint32_t mesh_index = search_id(hash, mesh_ids[i]);
-        if (mesh_index == MESHID_NOT_FOUND || mesh_index >= 1553332) {
+        mesh_indices[i] = get_mesh_index(hash, mesh_ids[i]);
+        if (mesh_indices[i] == UINT64_MAX) {
             fprintf(stderr, "Error: Mesh ID %u not found or invalid\n", mesh_ids[i]);
-            free(mesh_indices);
-            free(results);
+            cleanup_multi_arrays(mesh_indices, results);
             return NULL;
         }
-        mesh_indices[i] = (uint64_t)mesh_index;
     }
     
-    // Read only the specific cells
     int ret = h5r_read_cells(h5_ctx, (uint64_t)time_index, mesh_indices, num_meshes, results);
     if (ret < 0) {
         fprintf(stderr, "Error: Failed to read cells at time %d from HDF5 file\n", time_index);
-        free(mesh_indices);
-        free(results);
+        cleanup_multi_arrays(mesh_indices, results);
         return NULL;
     }
     
@@ -245,27 +271,23 @@ int32_t* h5mobaku_read_population_multi(struct h5r *h5_ctx, cmph_t *hash, uint32
 
 // Read population time series for a single mesh
 int32_t* h5mobaku_read_population_time_series(struct h5r *h5_ctx, cmph_t *hash, uint32_t mesh_id, int start_time_index, int end_time_index) {
-    if (!h5_ctx || !hash || start_time_index < 0 || end_time_index < start_time_index) {
+    if (validate_basic_params(h5_ctx, hash) < 0 || start_time_index < 0 || end_time_index < start_time_index) {
         fprintf(stderr, "Error: Invalid parameters in h5mobaku_read_population_time_series\n");
         return NULL;
     }
     
-    // Get mesh index
-    uint32_t mesh_index = search_id(hash, mesh_id);
-    if (mesh_index == MESHID_NOT_FOUND || mesh_index >= 1553332) {
+    uint64_t mesh_index = get_mesh_index(hash, mesh_id);
+    if (mesh_index == UINT64_MAX) {
+        fprintf(stderr, "Error: Mesh ID %u not found or invalid\n", mesh_id);
         return NULL;
     }
     
     int num_times = end_time_index - start_time_index + 1;
-    int32_t *time_series = (int32_t*)malloc(num_times * sizeof(int32_t));
-    if (!time_series) {
-        fprintf(stderr, "Error: Memory allocation failed for time series data\n");
-        return NULL;
-    }
+    int32_t *time_series = (int32_t*)safe_malloc(num_times * sizeof(int32_t), "time series data");
+    if (!time_series) return NULL;
     
-    // Read each time step using single cell reads
     for (int t = 0; t < num_times; t++) {
-        int ret = h5r_read_cell(h5_ctx, (uint64_t)(start_time_index + t), (uint64_t)mesh_index, &time_series[t]);
+        int ret = h5r_read_cell(h5_ctx, (uint64_t)(start_time_index + t), mesh_index, &time_series[t]);
         if (ret < 0) {
             fprintf(stderr, "Error: Failed to read cell at time %d from HDF5 file\n", start_time_index + t);
             free(time_series);
