@@ -286,14 +286,15 @@ int32_t* h5mobaku_read_population_time_series(struct h5r *h5_ctx, cmph_t *hash, 
     int32_t *time_series = (int32_t*)safe_malloc(num_times * sizeof(int32_t), "time series data");
     if (!time_series) return NULL;
     
-    for (int t = 0; t < num_times; t++) {
-        int ret = h5r_read_cell(h5_ctx, (uint64_t)(start_time_index + t), mesh_index, &time_series[t]);
-        if (ret < 0) {
-            fprintf(stderr, "Error: Failed to read cell at time %d from HDF5 file\n", start_time_index + t);
-            free(time_series);
-            return NULL;
-        }
+    // Use bulk read for better performance with chunking (crows:8760;ccols:16)
+    int ret = h5r_read_column_range(h5_ctx, (uint64_t)start_time_index, (uint64_t)end_time_index, mesh_index, time_series);
+    if (ret < 0) {
+        fprintf(stderr, "Error: Failed to read time series from %d to %d for mesh %u\n", 
+                start_time_index, end_time_index, mesh_id);
+        free(time_series);
+        return NULL;
     }
+    
     return time_series;
 }
 
