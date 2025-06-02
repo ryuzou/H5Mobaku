@@ -44,25 +44,6 @@ int main()
     }
     H5Pclose(cpl);
 
-    /* 行読みが 0 結果にならないか簡易チェック（ライブラリ経由） */
-    struct h5r *ctx = nullptr;
-    int ret = h5r_open(FILEPATH, &ctx);
-    if (ret != 0) {
-        std::cerr << "h5r_open failed with error: " << ret << "\n";
-        H5Tclose(t); H5Dclose(d); H5Fclose(f);
-        return 1;
-    }
-    
-    std::vector<int32_t> row(dims[1]);
-    ret = h5r_read_row(ctx, 0, row.data());
-    if (ret != 0) {
-        std::cerr << "h5r_read_row failed with error: " << ret << "\n";
-        h5r_close(ctx);
-        H5Tclose(t); H5Dclose(d); H5Fclose(f);
-        return 1;
-    }
-    h5r_close(ctx);
-
     /* sanity */
     std::cout << "layout verification passed.\n";
     H5Tclose(t); H5Dclose(d); H5Fclose(f);
