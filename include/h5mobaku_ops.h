@@ -41,6 +41,12 @@ int32_t h5mobaku_read_population_single(struct h5r *h5_ctx, cmph_t *hash, uint32
 int32_t* h5mobaku_read_population_multi(struct h5r *h5_ctx, cmph_t *hash, uint32_t *mesh_ids, size_t num_meshes, int time_index);
 int32_t* h5mobaku_read_population_time_series(struct h5r *h5_ctx, cmph_t *hash, uint32_t mesh_id, int start_time_index, int end_time_index);
 
+// Optimized multi-mesh multi-time series reading
+// Returns data in row-major order: data[time_idx * num_meshes + mesh_idx]
+int32_t* h5mobaku_read_multi_mesh_time_series(struct h5r *h5_ctx, cmph_t *hash, 
+                                               uint32_t *mesh_ids, size_t num_meshes,
+                                               int start_time_index, int end_time_index);
+
 // Free allocated memory from multi/time_series functions
 void h5mobaku_free_data(int32_t *data);
 

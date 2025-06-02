@@ -72,19 +72,4 @@ int* get_all_meshes_in_1st_mesh(int meshid_1, int NUM_MESHES);
 // HDF5 population data reading functions
 struct h5r;  // Forward declaration
 
-// Read population data for a single mesh at a specific time index
-int32_t read_population_single(struct h5r *h5_ctx, uint32_t mesh_id, int time_index);
-
-// Read population data for multiple meshes at a specific time index
-int32_t* read_population_multi(struct h5r *h5_ctx, uint32_t *mesh_ids, size_t num_meshes, int time_index);
-
-// Read population time series for a single mesh
-int32_t* read_population_time_series(struct h5r *h5_ctx, uint32_t mesh_id, int start_time_index, int end_time_index);
-
-// Read population data for hierarchical mesh aggregation
-int64_t read_population_hierarchical(struct h5r *h5_ctx, const char *mesh_prefix, int time_index);
-
-// Read population data for a rectangular region in the dataset
-int32_t* read_population_rect(struct h5r *h5_ctx, int start_time_index, int end_time_index, uint32_t *mesh_ids, size_t num_meshes);
-
 #endif //MESHID_OPS_H

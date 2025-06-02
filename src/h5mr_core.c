@@ -190,41 +190,35 @@ static int read_contiguous_cells(struct h5r *ctx, uint64_t row, uint64_t start_c
 }
 
 static int read_chunked_cells(struct h5r *ctx, uint64_t row, uint64_t *cols, size_t ncols, int32_t *values) {
-    /* チャンク境界を考慮した最適化読み込み */
+    /* H5Sselect_elements()を使用した最適化読み込み */
     hid_t fsp = H5Dget_space(ctx->dset);
     
-    // チャンクサイズ(ccols=16)を考慮してグループ化
-    size_t chunk_size = ctx->ccols;
-    size_t processed = 0;
-    
-    while (processed < ncols) {
-        // 同一チャンク内の列をグループ化
-        size_t chunk_start = processed;
-        uint64_t current_chunk = cols[processed] / chunk_size;
-        
-        while (processed < ncols && cols[processed] / chunk_size == current_chunk) {
-            processed++;
-        }
-        
-        size_t chunk_count = processed - chunk_start;
-        
-        // このチャンク内の列を読み込み
-        if (chunk_count == 1) {
-            // 単一セルの場合
-            H5Sselect_hyperslab(fsp, chunk_start == 0 ? H5S_SELECT_SET : H5S_SELECT_OR,
-                               (hsize_t[]){row, cols[chunk_start]}, NULL, 
-                               (hsize_t[]){1, 1}, NULL);
-        } else {
-            // 複数セルの場合、個別に追加
-            for (size_t i = chunk_start; i < processed; i++) {
-                H5Sselect_hyperslab(fsp, (chunk_start == 0 && i == chunk_start) ? H5S_SELECT_SET : H5S_SELECT_OR,
-                                   (hsize_t[]){row, cols[i]}, NULL, 
-                                   (hsize_t[]){1, 1}, NULL);
-            }
-        }
+    // 2D座標配列を作成 (row, col)のペア
+    hsize_t *coords = (hsize_t*)malloc(ncols * 2 * sizeof(hsize_t));
+    if (!coords) {
+        H5Sclose(fsp);
+        return -1;
     }
     
+    // 座標を設定
+    for (size_t i = 0; i < ncols; i++) {
+        coords[i * 2] = row;         // row座標
+        coords[i * 2 + 1] = cols[i]; // column座標
+    }
+    
+    // H5Sselect_elements()で一度にすべての要素を選択
+    herr_t status = H5Sselect_elements(fsp, H5S_SELECT_SET, ncols, coords);
+    free(coords);
+    
+    if (status < 0) {
+        H5Sclose(fsp);
+        return -1;
+    }
+    
+    // メモリ空間を作成
     hid_t msp = H5Screate_simple(1, (hsize_t[]){ncols}, NULL);
+    
+    // データを読み込み
     int ret = H5Dread(ctx->dset, H5T_STD_I32LE, msp, fsp, H5P_DEFAULT, values);
     
     H5Sclose(msp); H5Sclose(fsp);
@@ -266,6 +260,55 @@ int h5r_read_column_range(struct h5r *ctx, uint64_t start_row, uint64_t end_row,
     hid_t msp = H5Screate_simple(1, (hsize_t[]){num_rows}, NULL);
     
     /* データを読み込み */
+    int ret = H5Dread(ctx->dset, H5T_STD_I32LE, msp, fsp, H5P_DEFAULT, values);
+    
+    H5Sclose(msp); H5Sclose(fsp);
+    return ret;
+}
+
+int h5r_read_columns_range(struct h5r *ctx, uint64_t *rows, size_t nrows, uint64_t *cols, size_t ncols, int32_t *values)
+{
+    /* 複数メッシュ×複数時系列の最適化読み込み
+     * rows: 時間インデックス配列 (nrows個)
+     * cols: メッシュインデックス配列 (ncols個) 
+     * values: 出力配列 (nrows × ncols)
+     * 出力配列のレイアウト: values[row_idx * ncols + col_idx]
+     */
+    if (!ctx || !rows || !cols || !values || nrows == 0 || ncols == 0) return -1;
+    
+    hid_t fsp = H5Dget_space(ctx->dset);
+    size_t total_elements = nrows * ncols;
+    
+    // 2D座標配列を作成
+    hsize_t *coords = (hsize_t*)malloc(total_elements * 2 * sizeof(hsize_t));
+    if (!coords) {
+        H5Sclose(fsp);
+        return -1;
+    }
+    
+    // すべての(row, col)ペアの座標を設定
+    size_t coord_idx = 0;
+    for (size_t r = 0; r < nrows; r++) {
+        for (size_t c = 0; c < ncols; c++) {
+            coords[coord_idx * 2] = rows[r];      // 時間インデックス
+            coords[coord_idx * 2 + 1] = cols[c];  // メッシュインデックス
+            coord_idx++;
+        }
+    }
+    
+    // H5Sselect_elements()で一度にすべての要素を選択
+    herr_t status = H5Sselect_elements(fsp, H5S_SELECT_SET, total_elements, coords);
+    free(coords);
+    
+    if (status < 0) {
+        H5Sclose(fsp);
+        return -1;
+    }
+    
+    // メモリ空間を作成 (1次元配列として)
+    hid_t msp = H5Screate_simple(1, (hsize_t[]){total_elements}, NULL);
+    
+    // データを読み込み
     int ret = H5Dread(ctx->dset, H5T_STD_I32LE, msp, fsp, H5P_DEFAULT, values);
     
     H5Sclose(msp); H5Sclose(fsp);

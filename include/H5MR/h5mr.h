@@ -17,6 +17,7 @@ extern "C" {
     int  h5r_read_cell(struct h5r *ctx, uint64_t row, uint64_t col, int32_t *value); /* 単一セル読み */
     int  h5r_read_cells(struct h5r *ctx, uint64_t row, uint64_t *cols, size_t ncols, int32_t *values); /* 複数セル読み */
     int  h5r_read_column_range(struct h5r *ctx, uint64_t start_row, uint64_t end_row, uint64_t col, int32_t *values); /* 時系列読み */
+    int  h5r_read_columns_range(struct h5r *ctx, uint64_t *rows, size_t nrows, uint64_t *cols, size_t ncols, int32_t *values); /* 複数メッシュ×複数時系列 */
     void h5r_close(struct h5r *ctx);                                 /* 終了 */
 
 #ifdef __cplusplus

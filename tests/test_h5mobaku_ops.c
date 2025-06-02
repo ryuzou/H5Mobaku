@@ -133,7 +133,7 @@ void test_performance(struct h5r *h5_ctx, cmph_t *hash) {
     if (batch_result) {
         printf("  Time for %zu meshes: %.6f seconds\n", 
                batch_size, ((double)(end - start)) / CLOCKS_PER_SEC);
-        h5mobaku_free_data(batch_result);
+        h5mobaku_free_data((int32_t*)batch_result);
     }
     
     // Test time series performance
@@ -146,6 +146,59 @@ void test_performance(struct h5r *h5_ctx, cmph_t *hash) {
         printf("  Time for 10000 hours: %.6f seconds\n",
                ((double)(end - start)) / CLOCKS_PER_SEC);
         h5mobaku_free_data(ts);
+    }
+    
+    // Test new optimized multi-mesh multi-time series function
+    printf("\n4. Multi-mesh multi-time series performance:\n");
+    uint32_t multi_meshes[] = {574036191, 574036192, 533925251, 574036193, 574036194};
+    size_t num_meshes = sizeof(multi_meshes) / sizeof(multi_meshes[0]);
+    int start_time = 0;
+    int end_time = 999; // 1000 hours
+    
+    printf("  Reading %zu meshes × %d hours = %zu values\n", 
+           num_meshes, end_time - start_time + 1, num_meshes * (end_time - start_time + 1));
+    
+    start = clock();
+    int32_t *multi_ts = h5mobaku_read_multi_mesh_time_series(h5_ctx, hash, multi_meshes, num_meshes, start_time, end_time);
+    end = clock();
+    
+    if (multi_ts) {
+        double elapsed = ((double)(end - start)) / CLOCKS_PER_SEC;
+        printf("  Time for multi-mesh multi-time series: %.6f seconds\n", elapsed);
+        printf("  Values per second: %.0f\n", (num_meshes * 1000.0) / elapsed);
+        
+        // Show sample values (first time point for each mesh)
+        printf("  Sample values (t=0):");
+        for (size_t i = 0; i < num_meshes; i++) {
+            printf(" %d", multi_ts[i]);
+        }
+        printf("\n");
+        
+        h5mobaku_free_data(multi_ts);
+    }
+    
+    // Compare traditional approach vs optimized approach
+    printf("\n5. Comparison: Traditional vs Optimized for %zu meshes × 10000 hours:\n", num_meshes);
+    
+    // Traditional approach: multiple calls
+    start = clock();
+    for (size_t i = 0; i < num_meshes; i++) {
+        int32_t *single_ts = h5mobaku_read_population_time_series(h5_ctx, hash, multi_meshes[i], 0, 9999);
+        if (single_ts) h5mobaku_free_data(single_ts);
+    }
+    end = clock();
+    double traditional_time = ((double)(end - start)) / CLOCKS_PER_SEC;
+    printf("  Traditional (multiple calls): %.6f seconds\n", traditional_time);
+    
+    // Optimized approach: single call
+    start = clock();
+    int32_t *opt_result = h5mobaku_read_multi_mesh_time_series(h5_ctx, hash, multi_meshes, num_meshes, 0, 9999);
+    end = clock();
+    double optimized_time = ((double)(end - start)) / CLOCKS_PER_SEC;
+    if (opt_result) {
+        printf("  Optimized (single call): %.6f seconds\n", optimized_time);
+        printf("  Speedup: %.2fx faster\n", traditional_time / optimized_time);
+        h5mobaku_free_data(opt_result);
     }
 }
 
