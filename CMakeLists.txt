@@ -53,6 +53,7 @@ SET(OBJS
 add_library(h5mr_internal OBJECT
         src/h5mr_core.c
         src/meshid_ops.c
+        src/h5mobaku_ops.c
 )
 target_include_directories(h5mr_internal
         PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -173,6 +174,18 @@ if(H5MR_BUILD_TESTS)
     )
     add_test(NAME H5MR.test_meshid_ops COMMAND test_meshid_ops)
     add_dependencies(test_meshid_ops ${H5MR_MAIN_TARGET})
+    
+    # Add test_h5mobaku_ops executable
+    add_executable(test_h5mobaku_ops tests/test_h5mobaku_ops.c)
+    target_link_libraries(test_h5mobaku_ops PRIVATE H5MR::h5mr ${CMPH_LIBRARIES})
+    target_link_directories(test_h5mobaku_ops PRIVATE ${LOCAL_INCLUDE}/lib)
+    target_include_directories(test_h5mobaku_ops PRIVATE ${CMPH_INCLUDE_DIRS})
+    set_target_properties(test_h5mobaku_ops PROPERTIES
+        C_STANDARD 23
+        C_STANDARD_REQUIRED ON
+    )
+    add_test(NAME H5MR.test_h5mobaku_ops COMMAND test_h5mobaku_ops)
+    add_dependencies(test_h5mobaku_ops ${H5MR_MAIN_TARGET})
 endif()
 
 # ───────────────────────────────────

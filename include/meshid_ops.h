@@ -14,6 +14,7 @@
 #include <string.h>
 #include <time.h>
 #include <stdlib.h>
+#include <limits.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -51,6 +52,7 @@ void uint2str(unsigned int num, char *str);
 cmph_t* prepare_search(void);
 
 // 検索関数
+#define MESHID_NOT_FOUND UINT32_MAX  // Error return value for search_id
 uint32_t search_id(cmph_t *hash, uint32_t key);
 
 char** uint_array_to_string_array(const int* int_array, size_t nkeys);

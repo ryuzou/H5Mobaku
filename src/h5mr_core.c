@@ -87,16 +87,40 @@ int h5r_open(const char *path, struct h5r **out)
     *out = ctx;
     return 0;
 }
-int h5r_read_row(struct h5r *ctx, uint64_t row, int32_t *dst)
+
+int h5r_read_cell(struct h5r *ctx, uint64_t row, uint64_t col, int32_t *value)
 {
-    /* 簡略版：HDF5で直接行を読み込み */
-    hid_t msp = H5Screate_simple(2,(hsize_t[]){1,ctx->cols},NULL);
+    /* 単一セルを読み込み */
+    hid_t msp = H5Screate_simple(1,(hsize_t[]){1},NULL);
     hid_t fsp = H5Dget_space(ctx->dset);
-    H5Sselect_hyperslab(fsp,H5S_SELECT_SET,(hsize_t[]){row,0},NULL,(hsize_t[]){1,ctx->cols},NULL);
-    int ret = H5Dread(ctx->dset,H5T_STD_I32LE,msp,fsp,H5P_DEFAULT,dst);
+    H5Sselect_hyperslab(fsp,H5S_SELECT_SET,(hsize_t[]){row,col},NULL,(hsize_t[]){1,1},NULL);
+    int ret = H5Dread(ctx->dset,H5T_STD_I32LE,msp,fsp,H5P_DEFAULT,value);
     H5Sclose(msp); H5Sclose(fsp);
     return ret;
 }
+int h5r_read_cells(struct h5r *ctx, uint64_t row, uint64_t *cols, size_t ncols, int32_t *values)
+{
+    /* 複数の非連続セルを読み込み */
+    hid_t fsp = H5Dget_space(ctx->dset);
+    
+    /* 最初のセルを選択 */
+    H5Sselect_hyperslab(fsp,H5S_SELECT_SET,(hsize_t[]){row,cols[0]},NULL,(hsize_t[]){1,1},NULL);
+    
+    /* 残りのセルを追加 */
+    for (size_t i = 1; i < ncols; i++) {
+        H5Sselect_hyperslab(fsp,H5S_SELECT_OR,(hsize_t[]){row,cols[i]},NULL,(hsize_t[]){1,1},NULL);
+    }
+    
+    /* メモリ空間を作成 */
+    hid_t msp = H5Screate_simple(1,(hsize_t[]){ncols},NULL);
+    
+    /* データを読み込み */
+    int ret = H5Dread(ctx->dset,H5T_STD_I32LE,msp,fsp,H5P_DEFAULT,values);
+    
+    H5Sclose(msp); H5Sclose(fsp);
+    return ret;
+}
+
 void h5r_close(struct h5r *ctx)
 {
     if (!ctx) return;

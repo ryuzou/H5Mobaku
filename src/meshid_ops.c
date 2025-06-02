@@ -143,9 +143,17 @@ cmph_t * prepare_search(void) {
 }
 
 uint32_t search_id(cmph_t *hash, uint32_t key) {
+    // Special case handling
     if (key == 684827214) {
         return 1553331;
     }
+    
+    // Validate digit count
+    if (key < 100000000 || key > 999999999) {
+        fprintf(stderr, "Error: Mesh ID %u has incomplete 1/2 regional meshid\n", key);
+        return MESHID_NOT_FOUND;
+    }
+    
     char key_str[11];
     uint2str(key, key_str);
     return cmph_search(hash, key_str, (cmph_uint32)strlen(key_str));
