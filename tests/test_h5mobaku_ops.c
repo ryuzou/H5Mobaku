@@ -67,22 +67,40 @@ void test_time_series_read(struct h5r *h5_ctx, cmph_t *hash) {
     
     uint32_t mesh_id = 574036191;
     int start_time = 0;
-    int end_time = 23; // 24 hours
+    int end_time = 17519; // 2 years = 365 * 2 * 24 - 1 hours
+    
+    printf("Reading 2 years of data (17,520 hours) for mesh ID: %u\n", mesh_id);
+    clock_t start_clock = clock();
     
     int32_t *time_series = h5mobaku_read_population_time_series(h5_ctx, hash, mesh_id, start_time, end_time);
     
+    clock_t end_clock = clock();
+    double elapsed_time = ((double)(end_clock - start_clock)) / CLOCKS_PER_SEC;
+    
     if (time_series) {
-        printf("Mesh ID: %u\n", mesh_id);
-        printf("Time series (first 10 hours):\n");
-        for (int i = 0; i < 10 && i <= end_time - start_time; i++) {
+        printf("Successfully read 2 years of data in %.6f seconds\n", elapsed_time);
+        
+        // Display first 5 values
+        printf("\nFirst 5 hours:\n");
+        for (int i = 0; i < 5; i++) {
             char *datetime_str = get_mobaku_datetime_from_time_index(start_time + i);
-            printf("  %s: %d\n", datetime_str ? datetime_str : "Unknown", time_series[i]);
+            printf("  Hour %d - %s: %d\n", i, datetime_str ? datetime_str : "Unknown", time_series[i]);
             if (datetime_str) free(datetime_str);
         }
+        
+        // Display last 5 values
+        printf("\nLast 5 hours:\n");
+        int total_hours = end_time - start_time + 1;
+        for (int i = total_hours - 5; i < total_hours; i++) {
+            char *datetime_str = get_mobaku_datetime_from_time_index(start_time + i);
+            printf("  Hour %d - %s: %d\n", i, datetime_str ? datetime_str : "Unknown", time_series[i]);
+            if (datetime_str) free(datetime_str);
+        }
+        
         h5mobaku_free_data(time_series);
-        print_test_result("Time series read", 1);
+        print_test_result("Time series read (2 years)", 1);
     } else {
-        print_test_result("Time series read", 0);
+        print_test_result("Time series read (2 years)", 0);
     }
 }
 
