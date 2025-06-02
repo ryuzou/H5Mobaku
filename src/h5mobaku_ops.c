@@ -300,66 +300,55 @@ int32_t* h5mobaku_read_population_time_series(struct h5r *h5_ctx, cmph_t *hash, 
 
 
 // Optimized multi-mesh multi-time series reading
-int32_t* h5mobaku_read_multi_mesh_time_series(struct h5r *h5_ctx, cmph_t *hash, 
-                                               uint32_t *mesh_ids, size_t num_meshes,
-                                               int start_time_index, int end_time_index) {
-    if (validate_basic_params(h5_ctx, hash) < 0 || !mesh_ids || num_meshes == 0 || 
-        start_time_index < 0 || end_time_index < start_time_index) {
-        fprintf(stderr, "Error: Invalid parameters in h5mobaku_read_multi_mesh_time_series\n");
+int32_t *
+h5mobaku_read_multi_mesh_time_series(struct h5r  *h5_ctx,
+                                     cmph_t      *hash,
+                                     uint32_t    *mesh_ids,
+                                     size_t       num_meshes,
+                                     int          start_time_index,
+                                     int          end_time_index)
+{
+    /* ── 基本パラメータ検証 ─────────────────────────── */
+    if (validate_basic_params(h5_ctx, hash) < 0 ||
+        !mesh_ids || num_meshes == 0 ||
+        start_time_index < 0 || end_time_index < start_time_index)
+    {
+        fprintf(stderr,
+                "Error: Invalid parameters in h5mobaku_read_multi_mesh_time_series\n");
         return NULL;
     }
-    
-    int num_times = end_time_index - start_time_index + 1;
-    size_t total_elements = (size_t)num_times * num_meshes;
-    
-    // Allocate output array
-    int32_t *results = (int32_t*)safe_malloc(total_elements * sizeof(int32_t), "multi mesh time series data");
+
+    const int     nrows        = end_time_index - start_time_index + 1;
+    const size_t  total_elems  = (size_t)nrows * num_meshes;
+
+    /* ── 出力バッファ確保（行優先：time-major）────────── */
+    int32_t *results = (int32_t *)safe_malloc(
+        total_elems * sizeof(int32_t),
+        "multi-mesh time-series result buffer");
     if (!results) return NULL;
-    
-    // Create time indices array
-    uint64_t *time_indices = (uint64_t*)safe_malloc(num_times * sizeof(uint64_t), "time indices");
-    if (!time_indices) {
-        free(results);
-        return NULL;
-    }
-    for (int i = 0; i < num_times; i++) {
-        time_indices[i] = (uint64_t)(start_time_index + i);
-    }
-    
-    // Convert mesh IDs to indices
-    uint64_t *mesh_indices = (uint64_t*)safe_malloc(num_meshes * sizeof(uint64_t), "mesh indices");
-    if (!mesh_indices) {
-        free(time_indices);
-        free(results);
-        return NULL;
-    }
-    
-    for (size_t i = 0; i < num_meshes; i++) {
-        mesh_indices[i] = get_mesh_index(hash, mesh_ids[i]);
-        if (mesh_indices[i] == UINT64_MAX) {
-            fprintf(stderr, "Error: Mesh ID %u not found or invalid\n", mesh_ids[i]);
-            free(mesh_indices);
-            free(time_indices);
+
+    /* ── 列ごとに一括読み込み → scatter copy ─────────── */
+    for (size_t m = 0; m < num_meshes; ++m) {
+        int32_t *colbuf = h5mobaku_read_population_time_series(
+            h5_ctx, hash,
+            mesh_ids[m],
+            start_time_index, end_time_index);
+
+        if (!colbuf) {          /* 子関数失敗で全体をクリーンアップ */
             free(results);
             return NULL;
         }
+
+        /* Row-major へ整形：result[r * num_meshes + m] = colbuf[r] */
+        for (int r = 0; r < nrows; ++r)
+            results[(size_t)r * num_meshes + m] = colbuf[r];
+
+        free(colbuf);
     }
-    
-    // Use optimized multi-dimensional read
-    int ret = h5r_read_columns_range(h5_ctx, time_indices, num_times,
-                                              mesh_indices, num_meshes, results);
-    
-    free(mesh_indices);
-    free(time_indices);
-    
-    if (ret < 0) {
-        fprintf(stderr, "Error: Failed to read multi-mesh time series data\n");
-        free(results);
-        return NULL;
-    }
-    
+
     return results;
 }
+
 
 // Free allocated memory
 void h5mobaku_free_data(int32_t *data) {

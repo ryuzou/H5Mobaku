@@ -264,7 +264,7 @@ void test_datetime_based_api(cmph_t *hash) {
     
     // Test multiple mesh read at specific datetime
     printf("\n2. Testing multiple mesh read at specific datetime:\n");
-    uint32_t mesh_ids[] = {574036191, 574036192, 574036193, 362257264, 574036194};
+    uint32_t mesh_ids[] = {362257272, 574036191, 574036192, 574036193, 362257264, 574036194, 362257284};
     size_t num_meshes = sizeof(mesh_ids) / sizeof(mesh_ids[0]);
     const char *test_datetime2 = "2024-01-01 01:00:00";
     int32_t *populations = h5mobaku_read_population_multi_at_time(ctx, hash, mesh_ids, num_meshes, test_datetime2);
