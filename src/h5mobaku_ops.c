@@ -36,8 +36,8 @@ static int validate_basic_params(struct h5r *h5_ctx, cmph_t *hash) {
 }
 
 static uint64_t get_mesh_index(cmph_t *hash, uint32_t mesh_id) {
-    uint32_t mesh_index = search_id(hash, mesh_id);
-    if (mesh_index == MESHID_NOT_FOUND || mesh_index >= 1553332) {
+    uint32_t mesh_index = meshid_search_id(hash, mesh_id);
+    if (mesh_index == MESHID_NOT_FOUND || mesh_index >= MOBAKU_MESH_COUNT) {
         return UINT64_MAX; // Error indicator
     }
     return (uint64_t)mesh_index;

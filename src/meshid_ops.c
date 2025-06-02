@@ -6,7 +6,7 @@
 
 #include <assert.h>
 
-time_t pg_bin_timestamp_to_jst(const char *bin_ptr, int len) {
+time_t meshid_pg_bin_timestamp_to_jst(const char *bin_ptr, int len) {
     if (len < 8) {
         return (time_t)-1;
     }
@@ -23,8 +23,8 @@ time_t pg_bin_timestamp_to_jst(const char *bin_ptr, int len) {
     return (time_t)jst_sec;
 }
 
-int get_time_index_mobaku_datetime(char* now_time_str) {
-    constexpr struct tm reference_time_tm = {0};
+int meshid_get_time_index_from_datetime(char* now_time_str) {
+    struct tm reference_time_tm = {0};
     if (strptime(REFERENCE_MOBAKU_DATETIME, "%Y-%m-%d %H:%M:%S", &reference_time_tm) == NULL) {
         fprintf(stderr, "Error: Failed to parse reference datetime string. Expected format: YYYY-MM-DD HH:MM:SS\n");
         return -1;
@@ -55,7 +55,7 @@ int get_time_index_mobaku_datetime(char* now_time_str) {
     return index_h_time;
 }
 
-int get_time_index_mobaku_datetime_from_time(time_t now_time) {
+int meshid_get_time_index_from_time(time_t now_time) {
     time_t reference_mobaku_time = REFERENCE_MOBAKU_TIME;
 
     if (now_time == (time_t)-1) {
@@ -70,7 +70,7 @@ int get_time_index_mobaku_datetime_from_time(time_t now_time) {
     return index_h_time;
 }
 
-char * get_mobaku_datetime_from_time_index(int time_index) {
+char * meshid_get_datetime_from_time_index(int time_index) {
     struct tm reference_time_tm = {0};
     if (strptime(REFERENCE_MOBAKU_DATETIME, "%Y-%m-%d %H:%M:%S", &reference_time_tm) == NULL) {
         fprintf(stderr, "Error: Failed to parse reference datetime (2016-01-01 00:00:00). Check system locale settings\n");
@@ -103,7 +103,7 @@ char * get_mobaku_datetime_from_time_index(int time_index) {
     return datetime_str;
 }
 
-void uint2str(unsigned int num, char *str) {
+void meshid_uint_to_str(unsigned int num, char *str) {
     int i = 0;
 
     // 数字を逆順に格納
@@ -123,7 +123,7 @@ void uint2str(unsigned int num, char *str) {
     }
 }
 
-cmph_t * prepare_search(void) {
+cmph_t * meshid_prepare_search(void) {
     unsigned char *mph_data = _binary_meshid_mobaku_mph_start;
     size_t mph_size = (size_t)(_binary_meshid_mobaku_mph_end - _binary_meshid_mobaku_mph_start);
     FILE *fp = fmemopen(mph_data, mph_size, "rb");
@@ -142,7 +142,7 @@ cmph_t * prepare_search(void) {
     return hash;
 }
 
-uint32_t search_id(cmph_t *hash, uint32_t key) {
+uint32_t meshid_search_id(cmph_t *hash, uint32_t key) {
     // Special case handling
     if (key == 684827214) {
         return 1553331;
@@ -155,11 +155,11 @@ uint32_t search_id(cmph_t *hash, uint32_t key) {
     }
     
     char key_str[11];
-    uint2str(key, key_str);
+    meshid_uint_to_str(key, key_str);
     return cmph_search(hash, key_str, (cmph_uint32)strlen(key_str));
 }
 
-char ** uint_array_to_string_array(const int *int_array, size_t nkeys) {
+char ** meshid_uint_array_to_string_array(const int *int_array, size_t nkeys) {
     char** str_array = (char**)malloc(sizeof(char*) * nkeys);
     if (str_array == NULL) {
         perror("Error: Memory allocation failed for string array");
@@ -178,12 +178,12 @@ char ** uint_array_to_string_array(const int *int_array, size_t nkeys) {
             free(str_array);
             return NULL;
         }
-        uint2str(int_array[i], str_array[i]);
+        meshid_uint_to_str(int_array[i], str_array[i]);
     }
     return str_array;
 }
 
-void free_string_array(char **str_array, size_t nkeys) {
+void meshid_free_string_array(char **str_array, size_t nkeys) {
     if (str_array == NULL) return;
     for (size_t i = 0; i < nkeys; ++i) {
         free(str_array[i]);
@@ -191,8 +191,8 @@ void free_string_array(char **str_array, size_t nkeys) {
     free(str_array);
 }
 
-cmph_t * create_local_mph_from_int(int *int_array, size_t nkeys) {
-    char** str_array = uint_array_to_string_array(int_array, nkeys);
+cmph_t * meshid_create_local_mph_from_int(int *int_array, size_t nkeys) {
+    char** str_array = meshid_uint_array_to_string_array(int_array, nkeys);
     if (str_array == NULL) return nullptr; // str_array が NULL の場合の処理を追加
 
     cmph_io_adapter_t* source = cmph_io_vector_adapter(str_array, nkeys);
@@ -201,7 +201,7 @@ cmph_t * create_local_mph_from_int(int *int_array, size_t nkeys) {
     cmph_t* hash = cmph_new(config);
     cmph_config_destroy(config);
     cmph_io_vector_adapter_destroy(source);
-    free_string_array(str_array, nkeys); // str_array の解放を追加
+    meshid_free_string_array(str_array, nkeys); // str_array の解放を追加
 
     if (hash == nullptr) {
         fprintf(stderr, "Error: Failed to create minimal perfect hash function for %zu local mesh IDs\n", nkeys);
@@ -211,13 +211,13 @@ cmph_t * create_local_mph_from_int(int *int_array, size_t nkeys) {
     return hash;
 }
 
-int find_local_id(cmph_t *hash, uint32_t key) {
+int meshid_find_local_id(cmph_t *hash, uint32_t key) {
     char key_str[11];
-    uint2str(key, key_str);
+    meshid_uint_to_str(key, key_str);
     return cmph_search(hash, key_str, (cmph_uint32)strlen(key_str));
 }
 
-void printProgressBar(int now, int all) {
+void meshid_print_progress_bar(int now, int all) {
     const int barWidth = 20;
 
     double progress = (double)(now) / (double)all;
@@ -236,10 +236,10 @@ void printProgressBar(int now, int all) {
     fflush(stdout);
 }
 
-int * get_all_meshes_in_1st_mesh(int meshid_1, int NUM_MESHES) {
-    int *mesh_ids = (int*)malloc(NUM_MESHES * sizeof(int));
+int * meshid_get_all_meshes_in_1st_mesh(int meshid_1, int num_meshes) {
+    int *mesh_ids = (int*)malloc(num_meshes * sizeof(int));
     if (mesh_ids == NULL) {
-        fprintf(stderr, "Error: Memory allocation failed for mesh IDs array (%d elements)\n", NUM_MESHES);
+        fprintf(stderr, "Error: Memory allocation failed for mesh IDs array (%d elements)\n", num_meshes);
         return NULL;
     }
 

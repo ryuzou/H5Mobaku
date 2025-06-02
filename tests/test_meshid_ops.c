@@ -24,7 +24,7 @@ int main() {
     }
 
     // 検索準備
-    cmph_t *hash = prepare_search();
+    cmph_t *hash = meshid_prepare_search();
     if (!hash) {
         return 1; // 検索準備に失敗した場合は終了
     }
@@ -41,7 +41,7 @@ int main() {
     // 検索時間計測
     clock_t start_time = clock();
     for (int i = 0; i < meshid_list_size; i++) {
-        uint32_t id = search_id(hash, keys[i]);
+        uint32_t id = meshid_search_id(hash, keys[i]);
         assert(meshid_list[id] == keys[i]); // 検索結果が期待されるメッシュIDと一致することを確認
     }
     clock_t end_time = clock();
@@ -55,22 +55,22 @@ int main() {
     cmph_destroy(hash);
 
     TestCase test_cases[] = {
-        {"2016-01-01 00:00:00", 0, "基準時刻と同一"},
-        {"2016-01-01 01:00:00", 1, "1時間後"},
-        {"2015-12-31 23:00:00", -1, "2時間前 (前日)"},
-        {"2016-01-02 00:00:00", 24, "1日後"},
-        {"2015-12-31 00:00:00", -1, "1日前"},
-        {"invalid time string", -1, "不正な日付文字列"},
-        {"2016-01-01 25:00:0", -1, "不正な日付文字列"},
-        {"2016-01-01 -1:00:00", -1, "不正な日付文字列"},
-        {"2016/01/01 01:00:00", -1, "不正な日付文字列(区切り文字不正)"},
-        {"2024-06-16 23:00:00", 74160-1, "最後"}
+        {"2016-01-01 00:00:00", 0, "Reference time"},
+        {"2016-01-01 01:00:00", 1, "1 hour later"},
+        {"2015-12-31 23:00:00", -1, "2 hours before (previous day)"},
+        {"2016-01-02 00:00:00", 24, "1 day later"},
+        {"2015-12-31 00:00:00", -1, "1 day before"},
+        {"invalid time string", -1, "Invalid datetime string"},
+        {"2016-01-01 25:00:0", -1, "Invalid hour"},
+        {"2016-01-01 -1:00:00", -1, "Negative hour"},
+        {"2016/01/01 01:00:00", -1, "Invalid date format"},
+        {"2024-06-16 23:00:00", 74160-1, "Last time index"}
     };
 
     int num_test_cases = sizeof(test_cases) / sizeof(TestCase);
 
     for (int i = 0; i < num_test_cases; ++i) {
-        int actual_return_value = get_time_index_mobaku_datetime((char*)test_cases[i].input_time_str);
+        int actual_return_value = meshid_get_time_index_from_datetime((char*)test_cases[i].input_time_str);
         // assertで結果を検証
         assert(actual_return_value == test_cases[i].expected_return_value);
     }
@@ -79,11 +79,11 @@ int main() {
     start_time = clock();
     int uint_list[] = {362335691,362335692,362335693,362335694,362335791,362335792,362335793,362335794,362335891,362335892,362335893,362335894,362335991,362335992,362335993,362335994};
     int num_elements = sizeof(uint_list) / sizeof(int);
-    cmph_t *local_hash = create_local_mph_from_int(uint_list, num_elements);
+    cmph_t *local_hash = meshid_create_local_mph_from_int(uint_list, num_elements);
     assert(local_hash != nullptr);
     for (size_t i = 0; i < num_elements; ++i) {
         int key = uint_list[i];
-        int index = find_local_id(local_hash, key);
+        int index = meshid_find_local_id(local_hash, key);
         assert(index == i);
         printf("my_list[%zu] (%d) index: %d\n", i, key, index);
     }

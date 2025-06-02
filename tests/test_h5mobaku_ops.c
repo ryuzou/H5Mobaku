@@ -19,7 +19,7 @@ void print_test_result(const char *test_name, int passed) {
 }
 
 // Forward declaration
-void test_datetime_based_api();
+void test_datetime_based_api(cmph_t *hash);
 
 // Test single mesh population reading
 void test_single_mesh_read(struct h5r *h5_ctx, cmph_t *hash) {
@@ -83,7 +83,7 @@ void test_time_series_read(struct h5r *h5_ctx, cmph_t *hash) {
         // Display first 5 values
         printf("\nFirst 5 hours:\n");
         for (int i = 0; i < 5; i++) {
-            char *datetime_str = get_mobaku_datetime_from_time_index(start_time + i);
+            char *datetime_str = meshid_get_datetime_from_time_index(start_time + i);
             printf("  Hour %d - %s: %d\n", i, datetime_str ? datetime_str : "Unknown", time_series[i]);
             if (datetime_str) free(datetime_str);
         }
@@ -92,7 +92,7 @@ void test_time_series_read(struct h5r *h5_ctx, cmph_t *hash) {
         printf("\nLast 5 hours:\n");
         int total_hours = end_time - start_time + 1;
         for (int i = total_hours - 5; i < total_hours; i++) {
-            char *datetime_str = get_mobaku_datetime_from_time_index(start_time + i);
+            char *datetime_str = meshid_get_datetime_from_time_index(start_time + i);
             printf("  Hour %d - %s: %d\n", i, datetime_str ? datetime_str : "Unknown", time_series[i]);
             if (datetime_str) free(datetime_str);
         }
@@ -206,7 +206,7 @@ int main(int argc, char *argv[]) {
     printf("=== H5Mobaku Operations Test Suite ===\n");
     
     // Initialize CMPH hash
-    cmph_t *hash = prepare_search();
+    cmph_t *hash = meshid_prepare_search();
     if (!hash) {
         fprintf(stderr, "Failed to initialize CMPH hash\n");
         return 1;
@@ -228,35 +228,26 @@ int main(int argc, char *argv[]) {
     test_multi_mesh_read(h5_ctx, hash);
     test_time_series_read(h5_ctx, hash);
     test_performance(h5_ctx, hash);
-    
+    test_datetime_based_api(hash);
+
     // Cleanup
     h5r_close(h5_ctx);
     cmph_destroy(hash);
     
-    // Run datetime-based API tests
-    test_datetime_based_api();
-    
+
     printf("\n=== All tests completed ===\n");
     return 0;
 }
 
 // Additional datetime-based tests
-void test_datetime_based_api() {
+void test_datetime_based_api(cmph_t *hash) {
     printf("\n\n=== Testing Datetime-based API ===\n");
-    
-    // Initialize CMPH hash
-    cmph_t *hash = prepare_search();
-    if (!hash) {
-        fprintf(stderr, "Failed to initialize CMPH hash\n");
-        return;
-    }
     
     // Open HDF5 file with h5mobaku wrapper
     struct h5mobaku *ctx;
     int ret = h5mobaku_open(TEST_HDF5_FILE, &ctx);
     if (ret < 0) {
         fprintf(stderr, "Failed to open HDF5 file with h5mobaku: %s\n", TEST_HDF5_FILE);
-        cmph_destroy(hash);
         return;
     }
     
@@ -310,7 +301,6 @@ void test_datetime_based_api() {
     
     // Cleanup
     h5mobaku_close(ctx);
-    cmph_destroy(hash);
     
     printf("\n=== Datetime-based API tests completed ===\n");
 }
