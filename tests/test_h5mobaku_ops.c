@@ -1,5 +1,5 @@
 //
-// Created by ryuzot on 25/02/06.
+// Created by ryuzot on 25/05/31.
 //
 
 #include <stdio.h>
@@ -9,9 +9,12 @@
 #include "h5mobaku_ops.h"
 #include "H5MR/h5mr.h"
 #include "meshid_ops.h"
+#include "env_utils.h"
 
-// Test file path - adjust as needed
-#define TEST_HDF5_FILE "/db1/h5/mobaku_base.h5"
+// Helper function to get test file path
+const char* get_test_file_path() {
+    return get_env_value("HDF5_FILE_PATH", "/db1/h5/mobaku_base.h5");
+}
 
 // Helper function to print test results
 void print_test_result(const char *test_name, int passed) {
@@ -213,15 +216,16 @@ int main(int argc, char *argv[]) {
     }
     
     // Open HDF5 file
+    const char* test_file = get_test_file_path();
     struct h5r *h5_ctx;
-    int ret = h5r_open(TEST_HDF5_FILE, &h5_ctx);
+    int ret = h5r_open(test_file, &h5_ctx);
     if (ret < 0) {
-        fprintf(stderr, "Failed to open HDF5 file: %s\n", TEST_HDF5_FILE);
+        fprintf(stderr, "Failed to open HDF5 file: %s\n", test_file);
         cmph_destroy(hash);
         return 1;
     }
     
-    printf("Successfully opened HDF5 file: %s\n", TEST_HDF5_FILE);
+    printf("Successfully opened HDF5 file: %s\n", test_file);
     
     // Run tests
     test_single_mesh_read(h5_ctx, hash);
@@ -244,10 +248,11 @@ void test_datetime_based_api(cmph_t *hash) {
     printf("\n\n=== Testing Datetime-based API ===\n");
     
     // Open HDF5 file with h5mobaku wrapper
+    const char* test_file = get_test_file_path();
     struct h5mobaku *ctx;
-    int ret = h5mobaku_open(TEST_HDF5_FILE, &ctx);
+    int ret = h5mobaku_open(test_file, &ctx);
     if (ret < 0) {
-        fprintf(stderr, "Failed to open HDF5 file with h5mobaku: %s\n", TEST_HDF5_FILE);
+        fprintf(stderr, "Failed to open HDF5 file with h5mobaku: %s\n", test_file);
         return;
     }
     

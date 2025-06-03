@@ -54,6 +54,7 @@ add_library(h5mr_internal OBJECT
         src/h5mr_core.c
         src/meshid_ops.c
         src/h5mobaku_ops.c
+        src/env_utils.c
 )
 target_include_directories(h5mr_internal
         PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

@@ -6,13 +6,13 @@
 #include <iostream>
 #include <vector>
 #include "H5MR/h5mr.h"
-
-static const char *FILEPATH = "/db1/h5/mobaku_base.h5";
+#include "env_utils.h"
 
 int main()
 {
     /* -------- HDF5 open -------- */
-    hid_t f = H5Fopen(FILEPATH, H5F_ACC_RDONLY, H5P_DEFAULT);
+    const char* filepath = get_env_value("HDF5_FILE_PATH", "/db1/h5/mobaku_base.h5");
+    hid_t f = H5Fopen(filepath, H5F_ACC_RDONLY, H5P_DEFAULT);
     if (f < 0) { std::cerr << "Cannot open file\n"; return 1; }
 
     hid_t d = H5Dopen2(f, "population_data", H5P_DEFAULT);
