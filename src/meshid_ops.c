@@ -17,7 +17,7 @@ time_t meshid_pg_bin_timestamp_to_jst(const char *bin_ptr, int len) {
 
     int64_t pg_sec  = pg_microsec / 1000000;
     int64_t utc_sec = pg_sec + POSTGRES_EPOCH_IN_UNIX;
-    // AWARE!!! HARD CODED!!!!
+    // WARNING: Hard-coded JST offset
     int64_t jst_sec = utc_sec - JST_OFFSET_SEC;
 
     return (time_t)jst_sec;
@@ -106,16 +106,16 @@ char * meshid_get_datetime_from_time_index(int time_index) {
 void meshid_uint_to_str(unsigned int num, char *str) {
     int i = 0;
 
-    // 数字を逆順に格納
+    // Store digits in reverse order
     do {
-        str[i++] = (num % 10) + '0'; // 数字を文字に変換
+        str[i++] = (num % 10) + '0'; // Convert digit to character
         num /= 10;
     } while (num > 0);
 
-    // 文字列の終端を追加
+    // Add null terminator
     str[i] = '\0';
 
-    // 文字列を逆にする
+    // Reverse the string
     for (int j = 0; j < i / 2; j++) {
         char temp = str[j];
         str[j] = str[i - j - 1];
@@ -167,11 +167,11 @@ char ** meshid_uint_array_to_string_array(const int *int_array, size_t nkeys) {
     }
 
     for (size_t i = 0; i < nkeys; ++i) {
-        // intの最大桁数を考慮してバッファを確保 (+ ヌル終端)
-        str_array[i] = (char*)malloc(sizeof(char) * 12); // intの最大値は10桁+符号+終端
+        // Allocate buffer considering max int digits (+ null terminator)
+        str_array[i] = (char*)malloc(sizeof(char) * 12); // Max int is 10 digits + sign + terminator
         if (str_array[i] == NULL) {
             perror("Error: Memory allocation failed for string element");
-            // 確保済みのメモリを解放
+            // Free already allocated memory
             for (size_t j = 0; j < i; ++j) {
                 free(str_array[j]);
             }
@@ -193,7 +193,7 @@ void meshid_free_string_array(char **str_array, size_t nkeys) {
 
 cmph_t * meshid_create_local_mph_from_int(int *int_array, size_t nkeys) {
     char** str_array = meshid_uint_array_to_string_array(int_array, nkeys);
-    if (str_array == NULL) return nullptr; // str_array が NULL の場合の処理を追加
+    if (str_array == NULL) return nullptr; // Handle case when str_array is NULL
 
     cmph_io_adapter_t* source = cmph_io_vector_adapter(str_array, nkeys);
     cmph_config_t* config = cmph_config_new(source);
@@ -201,7 +201,7 @@ cmph_t * meshid_create_local_mph_from_int(int *int_array, size_t nkeys) {
     cmph_t* hash = cmph_new(config);
     cmph_config_destroy(config);
     cmph_io_vector_adapter_destroy(source);
-    meshid_free_string_array(str_array, nkeys); // str_array の解放を追加
+    meshid_free_string_array(str_array, nkeys); // Free str_array
 
     if (hash == nullptr) {
         fprintf(stderr, "Error: Failed to create minimal perfect hash function for %zu local mesh IDs\n", nkeys);
@@ -223,7 +223,7 @@ void meshid_print_progress_bar(int now, int all) {
     double progress = (double)(now) / (double)all;
     int pos = (int)(barWidth * progress);
 
-    // 行頭に戻る(\r)ことで同じ行を上書き
+    // Use carriage return (\r) to overwrite the same line
     printf("\r[");
     for (int i = 0; i < barWidth; ++i) {
         if (i < pos) {

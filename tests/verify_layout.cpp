@@ -31,7 +31,7 @@ int main()
     hid_t t = H5Dget_type(d);
     assert(H5Tequal(t, H5T_STD_I32LE) > 0);
 
-    /* chunked / contiguous ⇒ どちらでも OK, ただし行方向サイズ一致を確認 */
+    /* chunked / contiguous -> either is OK, but verify row-wise size match */
     hid_t cpl = H5Dget_create_plist(d);
     const int layout = H5Pget_layout(cpl);
     if (layout == H5D_CHUNKED) {
@@ -39,12 +39,12 @@ int main()
         H5Pget_chunk(cpl, 2, cdims);
         std::cout << "Chunk dimensions: " << cdims[0] << " x " << cdims[1] << "\n";
         std::cout << "Dataset dimensions: " << dims[0] << " x " << dims[1] << "\n";
-        // チャンク次元の確認を削除（実際のデータに合わせて後で調整）
-        // assert(cdims[1] == dims[1]);          // 行チャンクか全列チャンク
+        // Chunk dimension check removed (adjust later based on actual data)
+        // assert(cdims[1] == dims[1]);          // Row chunks or full column chunks
     }
     H5Pclose(cpl);
 
-    /* sanity */
+    /* sanity check */
     std::cout << "layout verification passed.\n";
     H5Tclose(t); H5Dclose(d); H5Fclose(f);
     return 0;

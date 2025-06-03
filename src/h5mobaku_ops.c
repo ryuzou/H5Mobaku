@@ -298,7 +298,7 @@ int32_t* h5mobaku_read_population_time_series(struct h5r *h5_ctx, cmph_t *hash, 
     return time_series;
 }
 
-/* ─────────────────────────────────────────────────────────────── */
+/* ---------------------------------------------------------------- */
 
 int32_t *
 h5mobaku_read_multi_mesh_time_series(struct h5r  *h5_ctx,
@@ -318,7 +318,7 @@ h5mobaku_read_multi_mesh_time_series(struct h5r  *h5_ctx,
     const uint64_t nrows       = (uint64_t)(end_time_index - start_time_index + 1);
     const size_t   total_elems = nrows * num_meshes;
 
-    /* ── ① mesh_id → dcol 変換 ─────────────────────────────── */
+    /* -- 1. Convert mesh_id to dcol -- */
     TIC(map_ids);
     uint64_t *dcols = safe_malloc(num_meshes * sizeof(uint64_t), "dcols");
     if (!dcols) return NULL;
@@ -328,7 +328,7 @@ h5mobaku_read_multi_mesh_time_series(struct h5r  *h5_ctx,
     }
     TOC(map_ids);
 
-    /* ── ② 連続ブロック探索 ──────────────────────────────── */
+    /* -- 2. Detect contiguous blocks -- */
     TIC(block_detect);
     h5r_block_t *blks = safe_malloc(num_meshes * sizeof(h5r_block_t), "blks");
     if (!blks) { free(dcols); return NULL; }
@@ -344,11 +344,11 @@ h5mobaku_read_multi_mesh_time_series(struct h5r  *h5_ctx,
     }
     TOC(block_detect);
 
-    /* ── ③ 経路分岐 ──────────────────────────────────────── */
+    /* -- 3. Route branching -- */
     int32_t *buf = NULL;
 
     if (nblk > NBLK_THRESHOLD) {
-        /* ---- UNION ハイパースラブ経路 ---- */
+        /* ---- UNION hyperslab route ---- */
         TIC(union_total);
         buf = safe_malloc(total_elems * sizeof(int32_t), "result");
         if (!buf) { free(dcols); free(blks); return NULL; }
@@ -366,7 +366,7 @@ h5mobaku_read_multi_mesh_time_series(struct h5r  *h5_ctx,
         TOC(union_total);
     }
     else {
-        /* ---- フォールバック経路 ---- */
+        /* ---- Fallback route ---- */
         TIC(fallback_total);
         buf = safe_malloc(total_elems * sizeof(int32_t), "result");
         if (!buf) { free(dcols); free(blks); return NULL; }
@@ -382,7 +382,7 @@ h5mobaku_read_multi_mesh_time_series(struct h5r  *h5_ctx,
 
             if (!col) { free(dcols); free(blks); free(buf); return NULL; }
 
-            /* 行方向コピー（stride = num_meshes） */
+            /* Row-wise copy (stride = num_meshes) */
             TIC(strided_copy);
             for (uint64_t r = 0; r < nrows; ++r)
                 buf[r * num_meshes + k] = col[r];

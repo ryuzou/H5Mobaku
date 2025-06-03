@@ -34,7 +34,7 @@ void h5r_close(struct h5r *ctx); /* 終了 */
 
 
 // #define ENABLE_H5MOBaku_PROFILE
-    /* ─── プロファイリング・ユーティリティ ─────────────────────────── */
+    /* --- Profiling utilities --- */
 #ifdef ENABLE_H5MOBaku_PROFILE
 #  include <time.h>
     static inline double now_sec(void)

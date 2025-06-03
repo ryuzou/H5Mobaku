@@ -14,16 +14,16 @@
 
 #ifdef USE_IO_URING
 #include <liburing.h>
-#define QD 32           /* キュー深度(行単位なら十分) */
+#define QD 32           /* Queue depth (sufficient for row-based operations) */
 #endif
 
 #define ALIGN 4096
 
 struct h5r {
-    int fd;                     /* HDF5 ファイル */
+    int fd;                     /* HDF5 file descriptor */
 #ifdef USE_IO_URING
-    struct io_uring ring;       /* uring インスタンス */
-    int io_uring_enabled;       /* io_uring が実際に使用可能かどうか */
+    struct io_uring ring;       /* io_uring instance */
+    int io_uring_enabled;       /* Whether io_uring is actually available */
 #endif
     hid_t file, dset;
     hsize_t rows, cols;
@@ -38,32 +38,32 @@ static void *aligned_alloc4k(size_t n)
     void *p; posix_memalign(&p, ALIGN, n); return p;
 }
 #ifdef USE_IO_URING
-// io_uring版のファイルオープン
+// Open file with io_uring support
 static int h5r_open_io_uring(const char *path, struct h5r *ctx) {
-    // O_DIRECTでファイルを開く
+    // Open file with O_DIRECT for bypassing page cache
     ctx->fd = open(path, O_RDONLY | O_DIRECT);
     if (ctx->fd < 0) {
-        // O_DIRECTが失敗した場合は通常のオープンを試行
+        // Fallback to normal open if O_DIRECT fails
         ctx->fd = open(path, O_RDONLY);
         if (ctx->fd < 0) {
             return -1;
         }
     }
     
-    // io_uring初期化
+    // Initialize io_uring
     ctx->io_uring_enabled = 0;
     if (io_uring_queue_init(QD, &ctx->ring, IORING_SETUP_SQPOLL) == 0) {
         ctx->io_uring_enabled = 1;
     } else if (io_uring_queue_init(QD, &ctx->ring, 0) == 0) {
-        // SQPOLL失敗時は通常モードで初期化
+        // Initialize in normal mode if SQPOLL fails
         ctx->io_uring_enabled = 1;
     }
-    // io_uring初期化に失敗してもエラーとせず、標準I/Oを使用
+    // Don't treat io_uring init failure as error, fallback to standard I/O
     
     return 0;
 }
 
-// io_uring版のクリーンアップ
+// Cleanup io_uring resources
 static void h5r_cleanup_io_uring(struct h5r *ctx) {
     if (ctx->io_uring_enabled) {
         io_uring_queue_exit(&ctx->ring);
@@ -72,9 +72,9 @@ static void h5r_cleanup_io_uring(struct h5r *ctx) {
 }
 #endif
 
-// 標準版のファイルオープン
+// Open file with standard I/O
 static int h5r_open_standard(const char *path, struct h5r *ctx) {
-    // 通常のファイルディスクリプタを使用
+    // Use standard file descriptor
     ctx->fd = open(path, O_RDONLY);
     if (ctx->fd < 0) {
         return -1;
@@ -82,7 +82,7 @@ static int h5r_open_standard(const char *path, struct h5r *ctx) {
     return 0;
 }
 
-// 標準版のクリーンアップ
+// Cleanup standard I/O resources
 static void h5r_cleanup_standard(struct h5r *ctx) {
     if (ctx->fd >= 0) close(ctx->fd);
 }
@@ -92,10 +92,10 @@ int h5r_open(const char *path, struct h5r **out)
     struct h5r *ctx = calloc(1, sizeof(*ctx));
     if (!ctx) return -1;
     
-    // ファイルディスクリプタとio_uringの初期化
+    // Initialize file descriptor and io_uring
 #ifdef USE_IO_URING
     if (h5r_open_io_uring(path, ctx) < 0) {
-        // io_uring失敗時は標準版にフォールバック
+        // Fallback to standard version if io_uring fails
         if (h5r_open_standard(path, ctx) < 0) {
             free(ctx);
             return -1;
@@ -146,14 +146,14 @@ int h5r_open(const char *path, struct h5r **out)
     ctx->rows = dims[0];
     ctx->cols = dims[1];
 
-    /* チャンクサイズの取得 */
+    /* Get chunk dimensions */
     hid_t dcpl = H5Dget_create_plist(ctx->dset);
     int ndims = H5Pget_chunk(dcpl, 2, dims);
     if (ndims > 0) {
         ctx->crows = dims[0];
         ctx->ccols = dims[1];
     } else {
-        // チャンクされていない場合のデフォルト値
+        // Default values for non-chunked datasets
         ctx->crows = 1;
         ctx->ccols = ctx->cols;
     }
@@ -167,7 +167,7 @@ int h5r_open(const char *path, struct h5r **out)
 
 int h5r_read_cell(struct h5r *ctx, uint64_t row, uint64_t col, int32_t *value)
 {
-    /* 単一セルを読み込み */
+    /* Read single cell */
     hid_t msp = H5Screate_simple(1,(hsize_t[]){1},NULL);
     hid_t fsp = H5Dget_space(ctx->dset);
     H5Sselect_hyperslab(fsp,H5S_SELECT_SET,(hsize_t[]){row,col},NULL,(hsize_t[]){1,1},NULL);
@@ -184,7 +184,7 @@ static int is_contiguous_columns(uint64_t *cols, size_t ncols) {
 }
 
 static int read_contiguous_cells(struct h5r *ctx, uint64_t row, uint64_t start_col, size_t ncols, int32_t *values) {
-    /* 連続する列の場合、単一のhyperslabで効率的に読み込み */
+    /* For contiguous columns, read efficiently with single hyperslab */
     hid_t fsp = H5Dget_space(ctx->dset);
     H5Sselect_hyperslab(fsp, H5S_SELECT_SET, 
                        (hsize_t[]){row, start_col}, NULL, 
@@ -198,23 +198,23 @@ static int read_contiguous_cells(struct h5r *ctx, uint64_t row, uint64_t start_c
 }
 
 static int read_chunked_cells(struct h5r *ctx, uint64_t row, uint64_t *cols, size_t ncols, int32_t *values) {
-    /* H5Sselect_elements()を使用した最適化読み込み */
+    /* Optimized read using H5Sselect_elements() */
     hid_t fsp = H5Dget_space(ctx->dset);
     
-    // 2D座標配列を作成 (row, col)のペア
+    // Create 2D coordinate array (row, col) pairs
     hsize_t *coords = (hsize_t*)malloc(ncols * 2 * sizeof(hsize_t));
     if (!coords) {
         H5Sclose(fsp);
         return -1;
     }
     
-    // 座標を設定
+    // Set coordinates
     for (size_t i = 0; i < ncols; i++) {
-        coords[i * 2] = row;         // row座標
-        coords[i * 2 + 1] = cols[i]; // column座標
+        coords[i * 2] = row;         // row coordinate
+        coords[i * 2 + 1] = cols[i]; // column coordinate
     }
     
-    // H5Sselect_elements()で一度にすべての要素を選択
+    // Select all elements at once with H5Sselect_elements()
     herr_t status = H5Sselect_elements(fsp, H5S_SELECT_SET, ncols, coords);
     free(coords);
     
@@ -223,10 +223,10 @@ static int read_chunked_cells(struct h5r *ctx, uint64_t row, uint64_t *cols, siz
         return -1;
     }
     
-    // メモリ空間を作成
+    // Create memory space
     hid_t msp = H5Screate_simple(1, (hsize_t[]){ncols}, NULL);
     
-    // データを読み込み
+    // Read data
     int ret = H5Dread(ctx->dset, H5T_STD_I32LE, msp, fsp, H5P_DEFAULT, values);
     
     H5Sclose(msp); H5Sclose(fsp);
@@ -237,37 +237,37 @@ int h5r_read_cells(struct h5r *ctx, uint64_t row, uint64_t *cols, size_t ncols, 
 {
     if (!ctx || !cols || !values || ncols == 0) return -1;
     
-    /* 単一セルの場合は専用関数を使用 */
+    /* Use dedicated function for single cell */
     if (ncols == 1) {
         return h5r_read_cell(ctx, row, cols[0], values);
     }
     
-    /* 連続する列の場合は最適化された読み込みを使用 */
+    /* Use optimized read for contiguous columns */
     if (is_contiguous_columns(cols, ncols)) {
         return read_contiguous_cells(ctx, row, cols[0], ncols, values);
     }
     
-    /* 非連続の場合はチャンク最適化読み込みを使用 */
+    /* Use chunk-optimized read for non-contiguous columns */
     return read_chunked_cells(ctx, row, cols, ncols, values);
 }
 
 int h5r_read_column_range(struct h5r *ctx, uint64_t start_row, uint64_t end_row, uint64_t col, int32_t *values)
 {
-    /* 時系列データ読み込み: 連続する行の同一列を一括読み込み */
+    /* Read time series data: bulk read of same column across contiguous rows */
     if (start_row > end_row) return -1;
     
     uint64_t num_rows = end_row - start_row + 1;
     
-    /* ファイル空間を取得し、連続する行範囲を選択 */
+    /* Get file space and select contiguous row range */
     hid_t fsp = H5Dget_space(ctx->dset);
     H5Sselect_hyperslab(fsp, H5S_SELECT_SET, 
                        (hsize_t[]){start_row, col}, NULL, 
                        (hsize_t[]){num_rows, 1}, NULL);
     
-    /* メモリ空間を作成 */
+    /* Create memory space */
     hid_t msp = H5Screate_simple(1, (hsize_t[]){num_rows}, NULL);
     
-    /* データを読み込み */
+    /* Read data */
     int ret = H5Dread(ctx->dset, H5T_STD_I32LE, msp, fsp, H5P_DEFAULT, values);
     
     H5Sclose(msp); H5Sclose(fsp);
@@ -276,35 +276,35 @@ int h5r_read_column_range(struct h5r *ctx, uint64_t start_row, uint64_t end_row,
 
 int h5r_read_columns_range(struct h5r *ctx, uint64_t *rows, size_t nrows, uint64_t *cols, size_t ncols, int32_t *values)
 {
-    /* 複数メッシュ×複数時系列の最適化読み込み
-     * rows: 時間インデックス配列 (nrows個)
-     * cols: メッシュインデックス配列 (ncols個) 
-     * values: 出力配列 (nrows × ncols)
-     * 出力配列のレイアウト: values[row_idx * ncols + col_idx]
+    /* Optimized read for multiple meshes x multiple time series
+     * rows: time index array (nrows elements)
+     * cols: mesh index array (ncols elements) 
+     * values: output array (nrows × ncols)
+     * Output layout: values[row_idx * ncols + col_idx]
      */
     if (!ctx || !rows || !cols || !values || nrows == 0 || ncols == 0) return -1;
     
     hid_t fsp = H5Dget_space(ctx->dset);
     size_t total_elements = nrows * ncols;
     
-    // 2D座標配列を作成
+    // Create 2D coordinate array
     hsize_t *coords = (hsize_t*)malloc(total_elements * 2 * sizeof(hsize_t));
     if (!coords) {
         H5Sclose(fsp);
         return -1;
     }
     
-    // すべての(row, col)ペアの座標を設定
+    // Set coordinates for all (row, col) pairs
     size_t coord_idx = 0;
     for (size_t r = 0; r < nrows; r++) {
         for (size_t c = 0; c < ncols; c++) {
-            coords[coord_idx * 2] = rows[r];      // 時間インデックス
-            coords[coord_idx * 2 + 1] = cols[c];  // メッシュインデックス
+            coords[coord_idx * 2] = rows[r];      // time index
+            coords[coord_idx * 2 + 1] = cols[c];  // mesh index
             coord_idx++;
         }
     }
     
-    // H5Sselect_elements()で一度にすべての要素を選択
+    // Select all elements at once with H5Sselect_elements()
     herr_t status = H5Sselect_elements(fsp, H5S_SELECT_SET, total_elements, coords);
     free(coords);
     
@@ -313,10 +313,10 @@ int h5r_read_columns_range(struct h5r *ctx, uint64_t *rows, size_t nrows, uint64
         return -1;
     }
     
-    // メモリ空間を作成 (1次元配列として)
+    // Create memory space (as 1D array)
     hid_t msp = H5Screate_simple(1, (hsize_t[]){total_elements}, NULL);
     
-    // データを読み込み
+    // Read data
     int ret = H5Dread(ctx->dset, H5T_STD_I32LE, msp, fsp, H5P_DEFAULT, values);
     
     H5Sclose(msp); H5Sclose(fsp);
@@ -324,12 +324,12 @@ int h5r_read_columns_range(struct h5r *ctx, uint64_t *rows, size_t nrows, uint64
 }
 
 
-/* row0〜row0+nrows-1 の行範囲を共通とする複数ブロックを
- * 1 回の H5Dread で dst へ格納する。
- * dst は行優先(row-major)・行ストライド = dst_stride。
- * 典型的には dst_stride = num_meshes。
+/* Read multiple blocks sharing the same row range (row0 to row0+nrows-1)
+ * in a single H5Dread call and store in dst.
+ * dst is row-major with row stride = dst_stride.
+ * Typically dst_stride = num_meshes.
  *
- * 戻り値: 0 = success, <0 = HDF5 error
+ * Return: 0 = success, <0 = HDF5 error
  */
 int h5r_read_blocks_union(struct h5r           *ctx,
                           uint64_t              row0,
@@ -342,14 +342,14 @@ int h5r_read_blocks_union(struct h5r           *ctx,
     if (!ctx || !blocks || !dst || nblk == 0 || nrows == 0)
         return -1;
     TIC(union_start);
-    /* ── 前段：空間オブジェクト生成 ─────────────────────────────── */
+    /* -- Preliminary: Create space objects -- */
     hid_t fsp = H5Dget_space(ctx->dset);
 
     hsize_t mdims[2] = { nrows, dst_stride };
     hid_t   msp      = H5Screate_simple(2, mdims, NULL);
 
     for (size_t i = 0; i < nblk; ++i) {
-        /* ------------- ファイル空間側 ------------- */
+        /* ------------- File space ------------- */
         hsize_t f_start[2] = { row0, blocks[i].dcol0 };
         hsize_t f_count[2] = { nrows, blocks[i].ncols };
         H5S_seloper_t f_op = (i == 0) ? H5S_SELECT_SET : H5S_SELECT_OR;
@@ -358,7 +358,7 @@ int h5r_read_blocks_union(struct h5r           *ctx,
             return -1;
         }
 
-        /* ------------- メモリ空間側 ------------- */
+        /* ------------- Memory space ------------- */
         hsize_t m_start[2] = { 0, blocks[i].mcol0 };
         hsize_t m_count[2] = { nrows, blocks[i].ncols };
         H5S_seloper_t m_op = (i == 0) ? H5S_SELECT_SET : H5S_SELECT_OR;
@@ -369,14 +369,14 @@ int h5r_read_blocks_union(struct h5r           *ctx,
     }
     TIC(UNION_read_start);
 
-    /* ── 読み込み ──────────────────────────────────────────────── */
+    /* -- Read data -- */
     int ret = H5Dread(ctx->dset, H5T_STD_I32LE, msp, fsp, H5P_DEFAULT, dst);
 
     H5Sclose(msp);
     H5Sclose(fsp);
     TOC(UNION_read_start);
     TOC(union_start);;
-    return ret;   /* ret == 0 で成功 */
+    return ret;   /* ret == 0 on success */
 }
 
 void h5r_close(struct h5r *ctx)
