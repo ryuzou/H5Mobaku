@@ -298,8 +298,8 @@ int32_t* h5mobaku_read_population_time_series(struct h5r *h5_ctx, cmph_t *hash, 
     return time_series;
 }
 
+/* ─────────────────────────────────────────────────────────────── */
 
-// Optimized multi-mesh multi-time series reading
 int32_t *
 h5mobaku_read_multi_mesh_time_series(struct h5r  *h5_ctx,
                                      cmph_t      *hash,
@@ -308,45 +308,96 @@ h5mobaku_read_multi_mesh_time_series(struct h5r  *h5_ctx,
                                      int          start_time_index,
                                      int          end_time_index)
 {
-    /* ── 基本パラメータ検証 ─────────────────────────── */
+    TIC(total);
+
     if (validate_basic_params(h5_ctx, hash) < 0 ||
         !mesh_ids || num_meshes == 0 ||
         start_time_index < 0 || end_time_index < start_time_index)
-    {
-        fprintf(stderr,
-                "Error: Invalid parameters in h5mobaku_read_multi_mesh_time_series\n");
         return NULL;
+
+    const uint64_t nrows       = (uint64_t)(end_time_index - start_time_index + 1);
+    const size_t   total_elems = nrows * num_meshes;
+
+    /* ── ① mesh_id → dcol 変換 ─────────────────────────────── */
+    TIC(map_ids);
+    uint64_t *dcols = safe_malloc(num_meshes * sizeof(uint64_t), "dcols");
+    if (!dcols) return NULL;
+    for (size_t i = 0; i < num_meshes; ++i) {
+        dcols[i] = get_mesh_index(hash, mesh_ids[i]);
+        if (dcols[i] == UINT64_MAX) { free(dcols); return NULL; }
     }
+    TOC(map_ids);
 
-    const int     nrows        = end_time_index - start_time_index + 1;
-    const size_t  total_elems  = (size_t)nrows * num_meshes;
+    /* ── ② 連続ブロック探索 ──────────────────────────────── */
+    TIC(block_detect);
+    h5r_block_t *blks = safe_malloc(num_meshes * sizeof(h5r_block_t), "blks");
+    if (!blks) { free(dcols); return NULL; }
 
-    /* ── 出力バッファ確保（行優先：time-major）────────── */
-    int32_t *results = (int32_t *)safe_malloc(
-        total_elems * sizeof(int32_t),
-        "multi-mesh time-series result buffer");
-    if (!results) return NULL;
+    size_t nblk = 0;
+    for (size_t i = 0; i < num_meshes; ) {
+        size_t j = i + 1;
+        while (j < num_meshes && dcols[j] == dcols[j-1] + 1) ++j;
+        blks[nblk++] = (h5r_block_t){ .dcol0 = dcols[i],
+                                      .mcol0 = i,
+                                      .ncols = j - i };
+        i = j;
+    }
+    TOC(block_detect);
 
-    /* ── 列ごとに一括読み込み → scatter copy ─────────── */
-    for (size_t m = 0; m < num_meshes; ++m) {
-        int32_t *colbuf = h5mobaku_read_population_time_series(
-            h5_ctx, hash,
-            mesh_ids[m],
-            start_time_index, end_time_index);
+    /* ── ③ 経路分岐 ──────────────────────────────────────── */
+    int32_t *buf = NULL;
 
-        if (!colbuf) {          /* 子関数失敗で全体をクリーンアップ */
-            free(results);
-            return NULL;
+    if (nblk > NBLK_THRESHOLD) {
+        /* ---- UNION ハイパースラブ経路 ---- */
+        TIC(union_total);
+        buf = safe_malloc(total_elems * sizeof(int32_t), "result");
+        if (!buf) { free(dcols); free(blks); return NULL; }
+
+        TIC(h5_union_read);
+        int rv = h5r_read_blocks_union(h5_ctx,
+                                       (uint64_t)start_time_index,
+                                       nrows,
+                                       blks, nblk,
+                                       buf,
+                                       /* dst_stride */ num_meshes);
+        TOC(h5_union_read);
+
+        if (rv < 0) { free(dcols); free(blks); free(buf); return NULL; }
+        TOC(union_total);
+    }
+    else {
+        /* ---- フォールバック経路 ---- */
+        TIC(fallback_total);
+        buf = safe_malloc(total_elems * sizeof(int32_t), "result");
+        if (!buf) { free(dcols); free(blks); return NULL; }
+
+        TIC(per_column_reads);
+        for (size_t k = 0; k < num_meshes; ++k) {
+
+            TIC(single_read);
+            int32_t *col = h5mobaku_read_population_time_series(
+                                h5_ctx, hash, mesh_ids[k],
+                                start_time_index, end_time_index);
+            TOC(single_read);
+
+            if (!col) { free(dcols); free(blks); free(buf); return NULL; }
+
+            /* 行方向コピー（stride = num_meshes） */
+            TIC(strided_copy);
+            for (uint64_t r = 0; r < nrows; ++r)
+                buf[r * num_meshes + k] = col[r];
+            TOC(strided_copy);
+
+            free(col);
         }
-
-        /* Row-major へ整形：result[r * num_meshes + m] = colbuf[r] */
-        for (int r = 0; r < nrows; ++r)
-            results[(size_t)r * num_meshes + m] = colbuf[r];
-
-        free(colbuf);
+        TOC(per_column_reads);
+        TOC(fallback_total);
     }
 
-    return results;
+    free(dcols);
+    free(blks);
+    TOC(total);
+    return buf;
 }
 
 

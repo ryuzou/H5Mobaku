@@ -14,7 +14,7 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-
+#define NBLK_THRESHOLD 128
 // H5Mobaku wrapper structure
 struct h5mobaku {
     struct h5r *h5r_ctx;      // Wrapped h5r context

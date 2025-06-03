@@ -150,7 +150,7 @@ void test_performance(struct h5r *h5_ctx, cmph_t *hash) {
     
     // Test new optimized multi-mesh multi-time series function
     printf("\n4. Multi-mesh multi-time series performance:\n");
-    uint32_t multi_meshes[] = {574036191, 574036192, 533925251, 574036193, 574036194};
+    uint32_t multi_meshes[] = {574036191, 574036192, 533925251, 574036193, 574036194, 362257264, 362257272, 684827002,684827003,684827004,684827101,684827102,684827103,684827104,684827201,684827202,684827203,684827204,684827301,684827302,684827303,684827304};
     size_t num_meshes = sizeof(multi_meshes) / sizeof(multi_meshes[0]);
     int start_time = 0;
     int end_time = 999; // 1000 hours

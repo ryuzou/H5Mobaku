@@ -30,6 +30,9 @@ struct h5r {
     hsize_t crows, ccols;
     haddr_t base;
 };
+
+
+
 static void *aligned_alloc4k(size_t n)
 {
     void *p; posix_memalign(&p, ALIGN, n); return p;
@@ -120,8 +123,13 @@ int h5r_open(const char *path, struct h5r **out)
         return -1;
     }
 
-    ctx->dset = H5Dopen2(ctx->file, "population_data", H5P_DEFAULT);
-    if (ctx->dset < 0) {
+    hid_t dapl = H5Pcreate(H5P_DATASET_ACCESS);
+    H5Pset_chunk_cache(dapl,
+                       /* nslots */ 10007,
+                       /* nbytes */ 32 * 1024 * 1024,
+                       /* w0     */ 0.75);
+    ctx->dset = H5Dopen2(ctx->file, "population_data", dapl);
+    H5Pclose(dapl);    if (ctx->dset < 0) {
         H5Fclose(ctx->file);
 #ifdef USE_IO_URING
         h5r_cleanup_io_uring(ctx);
@@ -315,17 +323,73 @@ int h5r_read_columns_range(struct h5r *ctx, uint64_t *rows, size_t nrows, uint64
     return ret;
 }
 
+
+/* row0〜row0+nrows-1 の行範囲を共通とする複数ブロックを
+ * 1 回の H5Dread で dst へ格納する。
+ * dst は行優先(row-major)・行ストライド = dst_stride。
+ * 典型的には dst_stride = num_meshes。
+ *
+ * 戻り値: 0 = success, <0 = HDF5 error
+ */
+int h5r_read_blocks_union(struct h5r           *ctx,
+                          uint64_t              row0,
+                          uint64_t              nrows,
+                          const h5r_block_t    *blocks,
+                          size_t                nblk,
+                          int32_t              *dst,
+                          size_t                dst_stride)
+{
+    if (!ctx || !blocks || !dst || nblk == 0 || nrows == 0)
+        return -1;
+    TIC(union_start);
+    /* ── 前段：空間オブジェクト生成 ─────────────────────────────── */
+    hid_t fsp = H5Dget_space(ctx->dset);
+
+    hsize_t mdims[2] = { nrows, dst_stride };
+    hid_t   msp      = H5Screate_simple(2, mdims, NULL);
+
+    for (size_t i = 0; i < nblk; ++i) {
+        /* ------------- ファイル空間側 ------------- */
+        hsize_t f_start[2] = { row0, blocks[i].dcol0 };
+        hsize_t f_count[2] = { nrows, blocks[i].ncols };
+        H5S_seloper_t f_op = (i == 0) ? H5S_SELECT_SET : H5S_SELECT_OR;
+        if (H5Sselect_hyperslab(fsp, f_op, f_start, NULL, f_count, NULL) < 0) {
+            H5Sclose(msp); H5Sclose(fsp);
+            return -1;
+        }
+
+        /* ------------- メモリ空間側 ------------- */
+        hsize_t m_start[2] = { 0, blocks[i].mcol0 };
+        hsize_t m_count[2] = { nrows, blocks[i].ncols };
+        H5S_seloper_t m_op = (i == 0) ? H5S_SELECT_SET : H5S_SELECT_OR;
+        if (H5Sselect_hyperslab(msp, m_op, m_start, NULL, m_count, NULL) < 0) {
+            H5Sclose(msp); H5Sclose(fsp);
+            return -1;
+        }
+    }
+    TIC(UNION_read_start);
+
+    /* ── 読み込み ──────────────────────────────────────────────── */
+    int ret = H5Dread(ctx->dset, H5T_STD_I32LE, msp, fsp, H5P_DEFAULT, dst);
+
+    H5Sclose(msp);
+    H5Sclose(fsp);
+    TOC(UNION_read_start);
+    TOC(union_start);;
+    return ret;   /* ret == 0 で成功 */
+}
+
 void h5r_close(struct h5r *ctx)
 {
     if (!ctx) return;
     if (ctx->dset >= 0) H5Dclose(ctx->dset);
     if (ctx->file >= 0) H5Fclose(ctx->file);
-    
+
 #ifdef USE_IO_URING
     h5r_cleanup_io_uring(ctx);
 #else
     h5r_cleanup_standard(ctx);
 #endif
-    
+
     free(ctx);
 }
