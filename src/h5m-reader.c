@@ -55,7 +55,7 @@ static void print_table_row_range(uint32_t mesh_id, const char *datetime, int32_
 
 static void print_table_footer_range(int count) {
     printf("+------------+---------------------+------------+\n");
-    printf("| Total records: %-36d |\n", count);
+    printf("| Total records: %-30d |\n", count);
     printf("+------------+---------------------+------------+\n");
 }
 
