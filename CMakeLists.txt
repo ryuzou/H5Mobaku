@@ -189,6 +189,28 @@ if(H5MR_BUILD_TESTS)
 endif()
 
 # ───────────────────────────────────
+#  CLI Tools
+# ───────────────────────────────────
+option(H5MR_BUILD_CLI      "Build CLI tools"           ON)
+
+if(H5MR_BUILD_CLI)
+    add_executable(h5m-reader src/h5m-reader.c)
+    target_link_libraries(h5m-reader PRIVATE H5MR::h5mr ${CMPH_LIBRARIES})
+    target_link_directories(h5m-reader PRIVATE ${LOCAL_INCLUDE}/lib)
+    target_include_directories(h5m-reader PRIVATE ${CMPH_INCLUDE_DIRS})
+    set_target_properties(h5m-reader PROPERTIES
+        C_STANDARD 23
+        C_STANDARD_REQUIRED ON
+    )
+    add_dependencies(h5m-reader ${H5MR_MAIN_TARGET})
+    
+    # Install CLI tools
+    install(TARGETS h5m-reader
+            RUNTIME DESTINATION bin
+    )
+endif()
+
+# ───────────────────────────────────
 #  Pybind11 / torch_cpp_extension
 # ───────────────────────────────────
 if(H5MR_ENABLE_PYBIND)
