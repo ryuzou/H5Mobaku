@@ -29,6 +29,10 @@ struct h5r {
     hsize_t rows, cols;
     hsize_t crows, ccols;
     haddr_t base;
+    hid_t dataspace_id;         /* Current dataspace (for writing) */
+    hid_t dcpl_id;              /* Dataset creation property list */
+    int is_writable;            /* Whether file is open for writing */
+    h5r_writer_config_t config; /* Writer configuration */
 };
 
 
@@ -161,6 +165,9 @@ int h5r_open(const char *path, struct h5r **out)
     H5Sclose(sp);
 
     ctx->base = H5Dget_offset(ctx->dset);
+    ctx->dataspace_id = -1;  // Not used for read-only mode
+    ctx->dcpl_id = -1;       // Not used for read-only mode
+    ctx->is_writable = 0;    // Read-only
     *out = ctx;
     return 0;
 }
@@ -171,7 +178,7 @@ int h5r_read_cell(struct h5r *ctx, uint64_t row, uint64_t col, int32_t *value)
     hid_t msp = H5Screate_simple(1,(hsize_t[]){1},NULL);
     hid_t fsp = H5Dget_space(ctx->dset);
     H5Sselect_hyperslab(fsp,H5S_SELECT_SET,(hsize_t[]){row,col},NULL,(hsize_t[]){1,1},NULL);
-    int ret = H5Dread(ctx->dset,H5T_STD_I32LE,msp,fsp,H5P_DEFAULT,value);
+    int ret = H5Dread(ctx->dset,H5T_NATIVE_INT,msp,fsp,H5P_DEFAULT,value);
     H5Sclose(msp); H5Sclose(fsp);
     return ret;
 }
@@ -191,7 +198,7 @@ static int read_contiguous_cells(struct h5r *ctx, uint64_t row, uint64_t start_c
                        (hsize_t[]){1, ncols}, NULL);
     
     hid_t msp = H5Screate_simple(1, (hsize_t[]){ncols}, NULL);
-    int ret = H5Dread(ctx->dset, H5T_STD_I32LE, msp, fsp, H5P_DEFAULT, values);
+    int ret = H5Dread(ctx->dset, H5T_NATIVE_INT, msp, fsp, H5P_DEFAULT, values);
     
     H5Sclose(msp); H5Sclose(fsp);
     return ret;
@@ -227,7 +234,7 @@ static int read_chunked_cells(struct h5r *ctx, uint64_t row, uint64_t *cols, siz
     hid_t msp = H5Screate_simple(1, (hsize_t[]){ncols}, NULL);
     
     // Read data
-    int ret = H5Dread(ctx->dset, H5T_STD_I32LE, msp, fsp, H5P_DEFAULT, values);
+    int ret = H5Dread(ctx->dset, H5T_NATIVE_INT, msp, fsp, H5P_DEFAULT, values);
     
     H5Sclose(msp); H5Sclose(fsp);
     return ret;
@@ -268,7 +275,7 @@ int h5r_read_column_range(struct h5r *ctx, uint64_t start_row, uint64_t end_row,
     hid_t msp = H5Screate_simple(1, (hsize_t[]){num_rows}, NULL);
     
     /* Read data */
-    int ret = H5Dread(ctx->dset, H5T_STD_I32LE, msp, fsp, H5P_DEFAULT, values);
+    int ret = H5Dread(ctx->dset, H5T_NATIVE_INT, msp, fsp, H5P_DEFAULT, values);
     
     H5Sclose(msp); H5Sclose(fsp);
     return ret;
@@ -317,7 +324,7 @@ int h5r_read_columns_range(struct h5r *ctx, uint64_t *rows, size_t nrows, uint64
     hid_t msp = H5Screate_simple(1, (hsize_t[]){total_elements}, NULL);
     
     // Read data
-    int ret = H5Dread(ctx->dset, H5T_STD_I32LE, msp, fsp, H5P_DEFAULT, values);
+    int ret = H5Dread(ctx->dset, H5T_NATIVE_INT, msp, fsp, H5P_DEFAULT, values);
     
     H5Sclose(msp); H5Sclose(fsp);
     return ret;
@@ -370,7 +377,7 @@ int h5r_read_blocks_union(struct h5r           *ctx,
     TIC(UNION_read_start);
 
     /* -- Read data -- */
-    int ret = H5Dread(ctx->dset, H5T_STD_I32LE, msp, fsp, H5P_DEFAULT, dst);
+    int ret = H5Dread(ctx->dset, H5T_NATIVE_INT, msp, fsp, H5P_DEFAULT, dst);
 
     H5Sclose(msp);
     H5Sclose(fsp);
@@ -383,6 +390,8 @@ void h5r_close(struct h5r *ctx)
 {
     if (!ctx) return;
     if (ctx->dset >= 0) H5Dclose(ctx->dset);
+    if (ctx->dataspace_id >= 0) H5Sclose(ctx->dataspace_id);
+    if (ctx->dcpl_id >= 0) H5Pclose(ctx->dcpl_id);
     if (ctx->file >= 0) H5Fclose(ctx->file);
 
 #ifdef USE_IO_URING
@@ -392,4 +401,142 @@ void h5r_close(struct h5r *ctx)
 #endif
 
     free(ctx);
+}
+
+/* ===============================================
+ *  Writing Functions (adapted from h5_writer_ops.c)
+ * =============================================== */
+
+int h5r_open_readwrite(const char *path, struct h5r **out) {
+    if (!path || !out) return -1;
+    
+    struct h5r *ctx = calloc(1, sizeof(*ctx));
+    if (!ctx) return -1;
+    
+    ctx->is_writable = 1;
+    
+    // Open file for read/write
+    hid_t fapl = H5Pcreate(H5P_FILE_ACCESS);
+    ctx->file = H5Fopen(path, H5F_ACC_RDWR, fapl);
+    H5Pclose(fapl);
+    
+    if (ctx->file < 0) {
+        free(ctx);
+        return -1;
+    }
+    
+    // Open dataset
+    ctx->dset = H5Dopen2(ctx->file, "population_data", H5P_DEFAULT);
+    if (ctx->dset < 0) {
+        H5Fclose(ctx->file);
+        free(ctx);
+        return -1;
+    }
+    
+    // Get dataspace
+    ctx->dataspace_id = H5Dget_space(ctx->dset);
+    
+    // Get current dimensions
+    hsize_t dims[2];
+    H5Sget_simple_extent_dims(ctx->dataspace_id, dims, NULL);
+    ctx->rows = dims[0];
+    ctx->cols = dims[1];
+    
+    // Get dataset creation property list
+    ctx->dcpl_id = H5Dget_create_plist(ctx->dset);
+    
+    // Initialize other fields
+    ctx->fd = -1;
+    ctx->base = H5Dget_offset(ctx->dset);
+    
+    *out = ctx;
+    return 0;
+}
+
+int h5r_extend_time_dimension(struct h5r *ctx, size_t new_time_points) {
+    if (!ctx || !ctx->is_writable || new_time_points <= ctx->rows) return -1;
+    
+    // Extend dataset
+    hsize_t new_dims[2] = {new_time_points, ctx->cols};
+    herr_t status = H5Dset_extent(ctx->dset, new_dims);
+    
+    if (status < 0) return -1;
+    
+    // Update dataspace
+    H5Sclose(ctx->dataspace_id);
+    ctx->dataspace_id = H5Dget_space(ctx->dset);
+    ctx->rows = new_time_points;
+    
+    return 0;
+}
+
+int h5r_write_cell(struct h5r *ctx, uint64_t row, uint64_t col, int32_t value) {
+    if (!ctx || !ctx->is_writable || row >= ctx->rows || col >= ctx->cols) {
+        return -1;
+    }
+    
+    // Select single element in file
+    hsize_t coords[2] = {row, col};
+    H5Sselect_elements(ctx->dataspace_id, H5S_SELECT_SET, 1, coords);
+    
+    // Create memory dataspace for single value
+    hid_t memspace = H5Screate_simple(1, (hsize_t[]){1}, NULL);
+    
+    // Write value
+    herr_t status = H5Dwrite(ctx->dset, H5T_NATIVE_INT, memspace, 
+                            ctx->dataspace_id, H5P_DEFAULT, &value);
+    
+    H5Sclose(memspace);
+    return (status < 0) ? -1 : 0;
+}
+
+int h5r_write_cells(struct h5r *ctx, uint64_t row, const uint64_t *cols, const int32_t *values, size_t ncols) {
+    if (!ctx || !ctx->is_writable || !cols || !values || ncols == 0) return -1;
+    if (row >= ctx->rows) return -1;
+    
+    // Validate column indices
+    for (size_t i = 0; i < ncols; i++) {
+        if (cols[i] >= ctx->cols) return -1;
+    }
+    
+    // Create coordinate array for H5Sselect_elements
+    hsize_t* coords = malloc(ncols * 2 * sizeof(hsize_t));
+    if (!coords) return -1;
+    
+    for (size_t i = 0; i < ncols; i++) {
+        coords[i * 2] = row;
+        coords[i * 2 + 1] = cols[i];
+    }
+    
+    // Select elements in file
+    H5Sselect_elements(ctx->dataspace_id, H5S_SELECT_SET, ncols, coords);
+    free(coords);
+    
+    // Create memory dataspace
+    hsize_t mem_dims = ncols;
+    hid_t memspace = H5Screate_simple(1, &mem_dims, NULL);
+    
+    // Write values
+    herr_t status = H5Dwrite(ctx->dset, H5T_NATIVE_INT, memspace, 
+                            ctx->dataspace_id, H5P_DEFAULT, values);
+    
+    H5Sclose(memspace);
+    return (status < 0) ? -1 : 0;
+}
+
+
+int h5r_flush(struct h5r *ctx) {
+    if (!ctx || !ctx->is_writable) return -1;
+    
+    herr_t status = H5Fflush(ctx->file, H5F_SCOPE_LOCAL);
+    return (status < 0) ? -1 : 0;
+}
+
+int h5r_get_dimensions(struct h5r *ctx, size_t *time_points, size_t *mesh_count) {
+    if (!ctx) return -1;
+    
+    if (time_points) *time_points = ctx->rows;
+    if (mesh_count) *mesh_count = ctx->cols;
+    
+    return 0;
 }

@@ -50,6 +50,23 @@ int32_t* h5mobaku_read_multi_mesh_time_series(struct h5r *h5_ctx, cmph_t *hash,
 // Free allocated memory from multi/time_series functions
 void h5mobaku_free_data(int32_t *data);
 
+// Writing functions (wrapper around h5r_* functions)
+// Initialize/create functions for writing
+int h5mobaku_create(const char *path, const h5r_writer_config_t* config, struct h5mobaku **out);
+int h5mobaku_open_readwrite(const char *path, struct h5mobaku **out);
+
+// Time-based writing API
+int h5mobaku_write_population_single_at_time(struct h5mobaku *ctx, cmph_t *hash, uint32_t mesh_id, const char *datetime_str, int32_t value);
+int h5mobaku_write_population_multi_at_time(struct h5mobaku *ctx, cmph_t *hash, uint32_t *mesh_ids, const int32_t *values, size_t num_meshes, const char *datetime_str);
+
+// Index-based writing API
+int h5mobaku_write_population_single(struct h5r *h5_ctx, cmph_t *hash, uint32_t mesh_id, int time_index, int32_t value);
+int h5mobaku_write_population_multi(struct h5r *h5_ctx, cmph_t *hash, uint32_t *mesh_ids, const int32_t *values, size_t num_meshes, int time_index);
+
+// Utility functions
+int h5mobaku_extend_time_dimension(struct h5mobaku *ctx, size_t new_time_points);
+int h5mobaku_flush(struct h5mobaku *ctx);
+
 #ifdef __cplusplus
 }
 #endif

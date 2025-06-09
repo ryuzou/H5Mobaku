@@ -55,6 +55,9 @@ add_library(h5mr_internal OBJECT
         src/meshid_ops.c
         src/h5mobaku_ops.c
         src/env_utils.c
+        src/csv_ops.c
+        src/csv_to_h5_converter.c
+        src/fifioq.c
 )
 target_include_directories(h5mr_internal
         PUBLIC  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -187,6 +190,30 @@ if(H5MR_BUILD_TESTS)
     )
     add_test(NAME H5MR.test_h5mobaku_ops COMMAND test_h5mobaku_ops)
     add_dependencies(test_h5mobaku_ops ${H5MR_MAIN_TARGET})
+    
+    # Add test_csv_to_h5 executable
+    add_executable(test_csv_to_h5 tests/test_csv_to_h5.c)
+    target_link_libraries(test_csv_to_h5 PRIVATE H5MR::h5mr ${CMPH_LIBRARIES})
+    target_link_directories(test_csv_to_h5 PRIVATE ${LOCAL_INCLUDE}/lib)
+    target_include_directories(test_csv_to_h5 PRIVATE ${CMPH_INCLUDE_DIRS})
+    set_target_properties(test_csv_to_h5 PROPERTIES
+        C_STANDARD 23
+        C_STANDARD_REQUIRED ON
+    )
+    add_test(NAME H5MR.test_csv_to_h5 COMMAND test_csv_to_h5)
+    add_dependencies(test_csv_to_h5 ${H5MR_MAIN_TARGET})
+    
+    # Add test_csv_ops executable
+    add_executable(test_csv_ops tests/test_csv_ops.c)
+    target_link_libraries(test_csv_ops PRIVATE H5MR::h5mr ${CMPH_LIBRARIES} pthread)
+    target_link_directories(test_csv_ops PRIVATE ${LOCAL_INCLUDE}/lib)
+    target_include_directories(test_csv_ops PRIVATE ${CMPH_INCLUDE_DIRS})
+    set_target_properties(test_csv_ops PROPERTIES
+        C_STANDARD 23
+        C_STANDARD_REQUIRED ON
+    )
+    add_test(NAME H5MR.test_csv_ops COMMAND test_csv_ops)
+    add_dependencies(test_csv_ops ${H5MR_MAIN_TARGET})
 endif()
 
 # ───────────────────────────────────
@@ -205,8 +232,18 @@ if(H5MR_BUILD_CLI)
     )
     add_dependencies(h5m-reader ${H5MR_MAIN_TARGET})
     
+    add_executable(csv-to-h5 src/csv_to_h5_cli.c)
+    target_link_libraries(csv-to-h5 PRIVATE H5MR::h5mr ${CMPH_LIBRARIES})
+    target_link_directories(csv-to-h5 PRIVATE ${LOCAL_INCLUDE}/lib)
+    target_include_directories(csv-to-h5 PRIVATE ${CMPH_INCLUDE_DIRS})
+    set_target_properties(csv-to-h5 PROPERTIES
+        C_STANDARD 23
+        C_STANDARD_REQUIRED ON
+    )
+    add_dependencies(csv-to-h5 ${H5MR_MAIN_TARGET})
+    
     # Install CLI tools
-    install(TARGETS h5m-reader
+    install(TARGETS h5m-reader csv-to-h5
             RUNTIME DESTINATION bin
     )
 endif()

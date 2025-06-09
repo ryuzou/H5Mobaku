@@ -24,6 +24,31 @@ int h5r_read_cell(struct h5r *ctx, uint64_t row, uint64_t col, int32_t *value); 
 int h5r_read_cells(struct h5r *ctx, uint64_t row, uint64_t *cols, size_t ncols, int32_t *values); /* 複数セル読み */
 int h5r_read_column_range(struct h5r *ctx, uint64_t start_row, uint64_t end_row, uint64_t col, int32_t *values);
 
+/* 書き込み関数 */
+typedef struct {
+    size_t initial_time_points;
+    size_t chunk_time_size;
+    size_t chunk_mesh_size;
+    size_t cache_size_mb;
+    int compression_level;
+} h5r_writer_config_t;
+
+#define H5R_WRITER_DEFAULT_CONFIG { \
+    .initial_time_points = 74160, \
+    .chunk_time_size = 8760, \
+    .chunk_mesh_size = 16, \
+    .cache_size_mb = 32, \
+    .compression_level = 0 \
+}
+
+int h5r_open_readwrite(const char *path, struct h5r **out); /* 読み書き用オープン */
+int h5r_extend_time_dimension(struct h5r *ctx, size_t new_time_points); /* 時間軸拡張 */
+int h5r_write_cell(struct h5r *ctx, uint64_t row, uint64_t col, int32_t value); /* 単一セル書き込み */
+int h5r_write_cells(struct h5r *ctx, uint64_t row, const uint64_t *cols, const int32_t *values, size_t ncols); /* 複数セル書き込み */
+int h5r_write_full_row(struct h5r *ctx, uint64_t row, const int32_t *values); /* 全行書き込み */
+int h5r_flush(struct h5r *ctx); /* フラッシュ */
+int h5r_get_dimensions(struct h5r *ctx, size_t *time_points, size_t *mesh_count); /* 次元取得 */
+
 /* 時系列読み */
 int h5r_read_columns_range(struct h5r *ctx, uint64_t *rows, size_t nrows, uint64_t *cols, size_t ncols,
                            int32_t *values); /* 複数メッシュ×複数時系列 */

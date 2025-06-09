@@ -36,7 +36,16 @@ static const time_t REFERENCE_MOBAKU_TIME = 1451574000;
 static const int64_t POSTGRES_EPOCH_IN_UNIX = 946684800LL;
 static const int64_t JST_OFFSET_SEC = 9 * 3600;
 
-// Dataset dimensions
+// Dataset dimensions - updated to match HDF5 specification
+#define NOW_ENTIRE_LEN_FOR_ONE_MESH 74160
+#define HDF5_DATETIME_CHUNK 8760
+#define HDF5_MESH_CHUNK 16
+#define NUM_PRODUCERS 32
+#define MESHLIST_ONCE_LEN 16
+#define QUEUE_SIZE 1024
+#define NUM_MESHES_1ST 25600
+
+// Legacy constants for backward compatibility
 #define MOBAKU_TIME_POINTS 74160
 #define MOBAKU_MESH_COUNT 1553332
 

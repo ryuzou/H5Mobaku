@@ -109,7 +109,9 @@ cmph_destroy(hash);
 h5mobaku_close(ctx);
 ```
 
-### CLI Tool
+### CLI Tools
+
+#### h5m-reader - Data Query Tool
 
 The `h5m-reader` command-line tool provides easy access to the data:
 
@@ -131,6 +133,41 @@ Options:
 - `-s, --start`: Start datetime for range query
 - `-e, --end`: End datetime for range query
 - `-r, --raw`: Output raw uint32 byte stream
+- `-h, --help`: Show help message
+
+#### csv-to-h5 - CSV to HDF5 Converter
+
+The `csv-to-h5` tool converts CSV population data files to HDF5 format:
+
+```bash
+# Convert single CSV file
+./csv-to-h5 -v -o output.h5 data.csv
+
+# Convert multiple CSV files
+./csv-to-h5 -v -o output.h5 file1.csv file2.csv file3.csv
+
+# Process all CSV files in a directory
+./csv-to-h5 -d ./data -p "*_mesh_pop_*.csv" -o processed.h5
+
+# Append to existing HDF5 file
+./csv-to-h5 -a -o existing.h5 new_data.csv
+```
+
+CSV Format (expected columns):
+```csv
+date,time,area,residence,age,gender,population
+20240101,0100,362257264,-1,-1,-1,19
+20240101,0100,362257272,-1,-1,-1,16
+20240101,0200,362257264,-1,-1,-1,21
+```
+
+Options:
+- `-o, --output <file>`: Output HDF5 file (default: cmake-build-debug/population_debug.h5)
+- `-b, --batch-size <size>`: Batch size for processing (default: 10000)
+- `-d, --directory <dir>`: Process all CSV files in directory
+- `-p, --pattern <pattern>`: File pattern to match (default: *.csv)
+- `-a, --append`: Append to existing HDF5 file
+- `-v, --verbose`: Enable verbose output
 - `-h, --help`: Show help message
 
 ## API Reference
