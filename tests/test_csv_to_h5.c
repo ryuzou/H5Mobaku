@@ -6,8 +6,10 @@
 #include <stdlib.h>
 #include <assert.h>
 #include <unistd.h>
+#include <string.h>
 #include "csv_to_h5_converter.h"
 #include "H5MR/h5mr.h"
+#include "h5mobaku_ops.h"
 #include "meshid_ops.h"
 
 void test_csv_conversion() {
@@ -47,6 +49,16 @@ void test_csv_conversion() {
     struct h5r* reader;
     result = h5r_open("test_output.h5", &reader);
     assert(result == 0);
+    
+    // Verify start_datetime attribute using h5mobaku wrapper
+    struct h5mobaku* h5m_reader;
+    result = h5mobaku_open("test_output.h5", &h5m_reader);
+    assert(result == 0);
+    assert(h5m_reader->start_datetime_str != NULL);
+    assert(strcmp(h5m_reader->start_datetime_str, "2016-01-01 00:00:00") == 0);
+    
+    printf("Start datetime attribute verified: %s\n", h5m_reader->start_datetime_str);
+    h5mobaku_close(h5m_reader);
     
     // Prepare mesh search
     cmph_t* hash = meshid_prepare_search();

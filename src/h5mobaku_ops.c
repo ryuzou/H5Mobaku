@@ -94,40 +94,85 @@ int h5mobaku_open(const char *path, struct h5mobaku **out) {
     
     // Read the start_datetime attribute
     hid_t attr_id = H5Aopen(dset_id, "start_datetime", H5P_DEFAULT);
-    if (attr_id >= 0) {
-        hid_t atype = H5Aget_type(attr_id);
-        hid_t atype_mem = H5Tget_native_type(atype, H5T_DIR_ASCEND);
-        
-        char *attr_value = NULL;
-        herr_t status = H5Aread(attr_id, atype_mem, &attr_value);
-        
-        if (status >= 0 && attr_value) {
-            ctx->start_datetime_str = strdup(attr_value);
-            
-            // Parse the datetime string to time_t
-            struct tm tm = {0};
-            if (strptime(ctx->start_datetime_str, "%Y-%m-%d %H:%M:%S", &tm) != NULL) {
-                ctx->start_datetime = mktime(&tm);
-            } else {
-                // Fallback to default if parsing fails
-                ctx->start_datetime = REFERENCE_MOBAKU_TIME;
-            }
-            
-            H5free_memory(attr_value);
-        } else {
-            // Use default if attribute not found
-            ctx->start_datetime = REFERENCE_MOBAKU_TIME;
-            ctx->start_datetime_str = strdup(REFERENCE_MOBAKU_DATETIME);
-        }
-        
+    if (attr_id < 0) {
+        fprintf(stderr, "Error: start_datetime attribute not found in HDF5 file\n");
+        H5Dclose(dset_id);
+        H5Fclose(file_id);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    hid_t atype = H5Aget_type(attr_id);
+    if (atype < 0) {
+        fprintf(stderr, "Error: Failed to get attribute type\n");
+        H5Aclose(attr_id);
+        H5Dclose(dset_id);
+        H5Fclose(file_id);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    hid_t atype_mem = H5Tget_native_type(atype, H5T_DIR_ASCEND);
+    if (atype_mem < 0) {
+        fprintf(stderr, "Error: Failed to get native type\n");
+        H5Tclose(atype);
+        H5Aclose(attr_id);
+        H5Dclose(dset_id);
+        H5Fclose(file_id);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    char attr_value[64];
+    herr_t status = H5Aread(attr_id, atype_mem, attr_value);
+    if (status < 0) {
+        fprintf(stderr, "Error: Failed to read start_datetime attribute\n");
         H5Tclose(atype_mem);
         H5Tclose(atype);
         H5Aclose(attr_id);
-    } else {
-        // Use default if attribute not found
-        ctx->start_datetime = REFERENCE_MOBAKU_TIME;
-        ctx->start_datetime_str = strdup(REFERENCE_MOBAKU_DATETIME);
+        H5Dclose(dset_id);
+        H5Fclose(file_id);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
     }
+    
+    ctx->start_datetime_str = strdup(attr_value);
+    if (!ctx->start_datetime_str) {
+        fprintf(stderr, "Error: Memory allocation failed for start_datetime_str\n");
+        H5Tclose(atype_mem);
+        H5Tclose(atype);
+        H5Aclose(attr_id);
+        H5Dclose(dset_id);
+        H5Fclose(file_id);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    // Parse the datetime string to time_t
+    struct tm tm = {0};
+    if (strptime(ctx->start_datetime_str, "%Y-%m-%d %H:%M:%S", &tm) != NULL) {
+        ctx->start_datetime = mktime(&tm);
+    } else {
+        fprintf(stderr, "Error: Failed to parse start_datetime string '%s'\n", ctx->start_datetime_str);
+        free(ctx->start_datetime_str);
+        H5Tclose(atype_mem);
+        H5Tclose(atype);
+        H5Aclose(attr_id);
+        H5Dclose(dset_id);
+        H5Fclose(file_id);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    H5Tclose(atype_mem);
+    H5Tclose(atype);
+    H5Aclose(attr_id);
     
     H5Dclose(dset_id);
     H5Fclose(file_id);
@@ -510,6 +555,20 @@ int h5mobaku_create(const char *path, const h5r_writer_config_t* config, struct 
         H5Sclose(cmph_data_space_id);
     }
     
+    // Add start_datetime attribute to the dataset
+    hid_t str_type = H5Tcopy(H5T_C_S1);
+    H5Tset_size(str_type, strlen(REFERENCE_MOBAKU_DATETIME) + 1);
+    H5Tset_strpad(str_type, H5T_STR_NULLTERM);
+    
+    hid_t attr_space = H5Screate(H5S_SCALAR);
+    hid_t attr_id = H5Acreate2(dset, "start_datetime", str_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
+    if (attr_id >= 0) {
+        H5Awrite(attr_id, str_type, REFERENCE_MOBAKU_DATETIME);
+        H5Aclose(attr_id);
+    }
+    H5Sclose(attr_space);
+    H5Tclose(str_type);
+    
     // Close HDF5 resources
     H5Dclose(dset);
     H5Pclose(dcpl_id);
@@ -539,9 +598,106 @@ int h5mobaku_open_readwrite(const char *path, struct h5mobaku **out) {
         return -1;
     }
     
-    // Try to read start_datetime attribute, use default if not found
-    ctx->start_datetime = REFERENCE_MOBAKU_TIME;
-    ctx->start_datetime_str = strdup(REFERENCE_MOBAKU_DATETIME);
+    // Read the start_datetime attribute from the HDF5 file
+    hid_t file_id = H5Fopen(path, H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (file_id < 0) {
+        fprintf(stderr, "Error: Failed to open HDF5 file for reading start_datetime attribute\n");
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    hid_t dset_id = H5Dopen2(file_id, "population_data", H5P_DEFAULT);
+    if (dset_id < 0) {
+        fprintf(stderr, "Error: population_data dataset not found in HDF5 file\n");
+        H5Fclose(file_id);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    hid_t attr_id = H5Aopen(dset_id, "start_datetime", H5P_DEFAULT);
+    if (attr_id < 0) {
+        fprintf(stderr, "Error: start_datetime attribute not found in HDF5 file\n");
+        H5Dclose(dset_id);
+        H5Fclose(file_id);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    hid_t atype = H5Aget_type(attr_id);
+    if (atype < 0) {
+        fprintf(stderr, "Error: Failed to get attribute type\n");
+        H5Aclose(attr_id);
+        H5Dclose(dset_id);
+        H5Fclose(file_id);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    hid_t atype_mem = H5Tget_native_type(atype, H5T_DIR_ASCEND);
+    if (atype_mem < 0) {
+        fprintf(stderr, "Error: Failed to get native type\n");
+        H5Tclose(atype);
+        H5Aclose(attr_id);
+        H5Dclose(dset_id);
+        H5Fclose(file_id);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    char attr_value[64];
+    herr_t status = H5Aread(attr_id, atype_mem, attr_value);
+    if (status < 0) {
+        fprintf(stderr, "Error: Failed to read start_datetime attribute\n");
+        H5Tclose(atype_mem);
+        H5Tclose(atype);
+        H5Aclose(attr_id);
+        H5Dclose(dset_id);
+        H5Fclose(file_id);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    ctx->start_datetime_str = strdup(attr_value);
+    if (!ctx->start_datetime_str) {
+        fprintf(stderr, "Error: Memory allocation failed for start_datetime_str\n");
+        H5Tclose(atype_mem);
+        H5Tclose(atype);
+        H5Aclose(attr_id);
+        H5Dclose(dset_id);
+        H5Fclose(file_id);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    // Parse the datetime string to time_t
+    struct tm tm = {0};
+    if (strptime(ctx->start_datetime_str, "%Y-%m-%d %H:%M:%S", &tm) != NULL) {
+        ctx->start_datetime = mktime(&tm);
+    } else {
+        fprintf(stderr, "Error: Failed to parse start_datetime string '%s'\n", ctx->start_datetime_str);
+        free(ctx->start_datetime_str);
+        H5Tclose(atype_mem);
+        H5Tclose(atype);
+        H5Aclose(attr_id);
+        H5Dclose(dset_id);
+        H5Fclose(file_id);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    H5Tclose(atype_mem);
+    H5Tclose(atype);
+    H5Aclose(attr_id);
+    H5Dclose(dset_id);
+    H5Fclose(file_id);
     
     *out = ctx;
     return 0;
