@@ -121,43 +121,6 @@ static int create_test_directory_structure(const char* base_dir) {
     return num_files;
 }
 
-// Recursively find all CSV files in directory
-static void find_csv_files(const char* dir_path, char*** files, size_t* count, size_t* capacity) {
-    DIR* dir = opendir(dir_path);
-    if (!dir) return;
-    
-    struct dirent* entry;
-    while ((entry = readdir(dir)) != NULL) {
-        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
-            continue;
-        }
-        
-        char full_path[1024];
-        snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
-        
-        struct stat st;
-        if (stat(full_path, &st) == 0) {
-            if (S_ISDIR(st.st_mode)) {
-                // Recursively search subdirectory
-                find_csv_files(full_path, files, count, capacity);
-            } else if (S_ISREG(st.st_mode)) {
-                // Check if it's a CSV file
-                size_t len = strlen(entry->d_name);
-                if (len > 4 && strcmp(entry->d_name + len - 4, ".csv") == 0) {
-                    // Add to files array
-                    if (*count >= *capacity) {
-                        *capacity *= 2;
-                        *files = realloc(*files, *capacity * sizeof(char*));
-                    }
-                    (*files)[*count] = strdup(full_path);
-                    (*count)++;
-                }
-            }
-        }
-    }
-    
-    closedir(dir);
-}
 
 
 // Consumer thread function

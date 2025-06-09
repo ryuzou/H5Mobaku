@@ -8,6 +8,8 @@
 #include <errno.h>
 #include <pthread.h>
 #include <unistd.h>
+#include <dirent.h>
+#include <sys/stat.h>
 
 #define CSV_BUFFER_SIZE 1024
 
@@ -290,4 +292,38 @@ void* csv_reader_thread_func(void* arg) {
     
     printf("CSV reader thread %d finished\n", data->thread_id);
     return NULL;
+}
+
+void find_csv_files(const char* dir_path, char*** files, size_t* count, size_t* capacity) {
+    DIR* dir = opendir(dir_path);
+    if (!dir) return;
+    
+    struct dirent* entry;
+    while ((entry = readdir(dir)) != NULL) {
+        if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) {
+            continue;
+        }
+        
+        char full_path[1024];
+        snprintf(full_path, sizeof(full_path), "%s/%s", dir_path, entry->d_name);
+        
+        struct stat st;
+        if (stat(full_path, &st) == 0) {
+            if (S_ISDIR(st.st_mode)) {
+                find_csv_files(full_path, files, count, capacity);
+            } else if (S_ISREG(st.st_mode)) {
+                size_t len = strlen(entry->d_name);
+                if (len > 4 && strcmp(entry->d_name + len - 4, ".csv") == 0) {
+                    if (*count >= *capacity) {
+                        *capacity *= 2;
+                        *files = realloc(*files, *capacity * sizeof(char*));
+                    }
+                    (*files)[*count] = strdup(full_path);
+                    (*count)++;
+                }
+            }
+        }
+    }
+    
+    closedir(dir);
 }

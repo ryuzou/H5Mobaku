@@ -71,6 +71,9 @@ time_t csv_datetime_to_time_t(uint32_t date, uint16_t time);
 // Free population data
 void free_population_data(population_data_t* data);
 
+// Recursively find all CSV files in directory
+void find_csv_files(const char* dir_path, char*** files, size_t* count, size_t* capacity);
+
 #ifdef __cplusplus
 }
 #endif

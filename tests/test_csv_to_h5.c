@@ -1,5 +1,5 @@
 //
-// Test for CSV to HDF5 conversion
+// Test for CSV to HDF5 conversion with multi-producer CSV generation
 //
 
 #include <stdio.h>
@@ -7,15 +7,200 @@
 #include <assert.h>
 #include <unistd.h>
 #include <string.h>
+#include <pthread.h>
+#include <dirent.h>
+#include <sys/stat.h>
+#include <time.h>
 #include "csv_to_h5_converter.h"
 #include "H5MR/h5mr.h"
 #include "h5mobaku_ops.h"
 #include "meshid_ops.h"
+#include "fifioq.h"
+#include "csv_ops.h"
+
+#define MIN_FILES 50
+#define MAX_FILES 80
+#define MIN_ROWS_PER_FILE 500
+#define MAX_ROWS_PER_FILE 800
+
+static int create_test_directory_structure(const char* base_dir) {
+    srand((unsigned int)time(NULL));
+    
+    int num_files = MIN_FILES + rand() % (MAX_FILES - MIN_FILES + 1);
+    
+    printf("Generating %d CSV files with ~650 rows each...\n", num_files);
+    
+    mkdir(base_dir, 0755);
+    
+    char path[512];
+    const char* regions[] = {"region1", "region2", "region3", "region4", "region5"};
+    const char* subregions[] = {"subregion1", "subregion2", "subregion3"};
+    
+    for (int r = 0; r < 5; r++) {
+        snprintf(path, sizeof(path), "%s/%s", base_dir, regions[r]);
+        mkdir(path, 0755);
+        
+        for (int s = 0; s < 3; s++) {
+            snprintf(path, sizeof(path), "%s/%s/%s", base_dir, regions[r], subregions[s]);
+            mkdir(path, 0755);
+        }
+    }
+    
+    for (int i = 0; i < num_files; i++) {
+        int dir_type = rand() % 3;
+        
+        if (dir_type == 0) {
+            snprintf(path, sizeof(path), "%s/data_%03d.csv", base_dir, i);
+        } else if (dir_type == 1) {
+            int region_idx = rand() % 5;
+            snprintf(path, sizeof(path), "%s/%s/data_%03d.csv", 
+                     base_dir, regions[region_idx], i);
+        } else {
+            int region_idx = rand() % 5;
+            int subregion_idx = rand() % 3;
+            snprintf(path, sizeof(path), "%s/%s/%s/data_%03d.csv", 
+                     base_dir, regions[region_idx], subregions[subregion_idx], i);
+        }
+        
+        FILE* fp = fopen(path, "w");
+        if (!fp) {
+            fprintf(stderr, "Failed to create file: %s\n", path);
+            continue;
+        }
+        
+        fprintf(fp, "date,time,area,residence,age,gender,population\n");
+        
+        int num_rows = MIN_ROWS_PER_FILE + rand() % (MAX_ROWS_PER_FILE - MIN_ROWS_PER_FILE + 1);
+        
+        for (int j = 0; j < num_rows; j++) {
+            int month = 1 + (rand() % 12);
+            int day = 1 + (rand() % 28);
+            
+            int hour = rand() % 24;
+            int minute = (rand() % 6) * 10;
+            
+            uint64_t base_meshid = 362257341ULL;
+            uint64_t meshid = base_meshid + (rand() % 10000);
+            
+            int population = 50 + (rand() % 500);
+            
+            fprintf(fp, "2016%02d%02d,%02d%02d,%llu,-1,-1,-1,%d\n",
+                    month, day, hour, minute, meshid, population);
+        }
+        
+        fclose(fp);
+        
+        if ((i + 1) % 10 == 0) {
+            printf("  Created %d/%d files...\n", i + 1, num_files);
+        }
+    }
+    
+    return num_files;
+}
+
+
+void test_multi_producer_csv_to_h5() {
+    printf("=== Testing Multi-Producer CSV Generation with Single Consumer H5 Writer ===\n");
+    
+    const char* test_dir = "test_multi_csv_dir";
+    
+    printf("Step 1: Creating test directory structure with CSV files...\n");
+    int expected_files = create_test_directory_structure(test_dir);
+    
+    printf("\nStep 2: Enumerating all CSV files...\n");
+    char** all_csv_files = malloc(MAX_FILES * sizeof(char*));
+    size_t total_file_count = 0;
+    size_t file_capacity = MAX_FILES;
+    find_csv_files(test_dir, &all_csv_files, &total_file_count, &file_capacity);
+    
+    if (total_file_count != expected_files) {
+        printf("Warning: Expected %d files, found %zu files\n", expected_files, total_file_count);
+    }
+    
+    printf("Total CSV files found: %zu\n", total_file_count);
+    
+    size_t files_to_show = (total_file_count < 10) ? total_file_count : 10;
+    for (size_t i = 0; i < files_to_show; i++) {
+        printf("  [%zu] %s\n", i, all_csv_files[i]);
+    }
+    if (total_file_count > 10) {
+        printf("  ... and %zu more files\n", total_file_count - 10);
+    }
+    
+    printf("\nStep 3: Single consumer converting all CSV files to H5...\n");
+    
+    csv_to_h5_config_t config = CSV_TO_H5_DEFAULT_CONFIG;
+    config.output_h5_file = "test_multi_output.h5";
+    config.create_new = 1;
+    config.verbose = 1;
+    
+    csv_to_h5_stats_t stats;
+    clock_t start_time = clock();
+    
+    int result = csv_to_h5_convert_files((const char**)all_csv_files, total_file_count, &config, &stats);
+    
+    clock_t end_time = clock();
+    double conversion_time = ((double)(end_time - start_time)) / CLOCKS_PER_SEC;
+    
+    assert(result == 0);
+    
+    printf("\n=== Conversion Statistics ===\n");
+    printf("Total CSV files processed: %zu\n", total_file_count);
+    printf("Total rows processed: %zu\n", stats.total_rows_processed);
+    printf("Unique timestamps: %zu\n", stats.unique_timestamps);
+    printf("Errors: %zu\n", stats.errors);
+    printf("Conversion time: %.2f seconds\n", conversion_time);
+    printf("Processing rate: %.1f rows/sec\n", stats.total_rows_processed / conversion_time);
+    printf("Average rows per file: %.1f\n", (double)stats.total_rows_processed / total_file_count);
+    
+    assert(stats.errors == 0);
+    assert(stats.total_rows_processed > 0);
+    assert(stats.unique_timestamps > 0);
+    
+    printf("\nStep 4: Verifying H5 file integrity...\n");
+    
+    struct h5r* reader;
+    result = h5r_open("test_multi_output.h5", &reader);
+    assert(result == 0);
+    
+    struct h5mobaku* h5m_reader;
+    result = h5mobaku_open("test_multi_output.h5", &h5m_reader);
+    assert(result == 0);
+    assert(h5m_reader->start_datetime_str != NULL);
+    
+    printf("H5 file verified. Start datetime: %s\n", h5m_reader->start_datetime_str);
+    
+    cmph_t* hash = meshid_prepare_search();
+    assert(hash != NULL);
+    
+    int32_t test_value;
+    uint32_t mesh_idx = meshid_search_id(hash, 362257341);
+    if (mesh_idx != MESHID_NOT_FOUND) {
+        result = h5r_read_cell(reader, 0, mesh_idx, &test_value);
+        assert(result == 0);
+        printf("Sample data verification: mesh 362257341 at time 0 = %d\n", test_value);
+    }
+    
+    h5mobaku_close(h5m_reader);
+    h5r_close(reader);
+    cmph_destroy(hash);
+    
+    printf("\nStep 5: Cleaning up...\n");
+    
+    for (size_t i = 0; i < total_file_count; i++) {
+        free(all_csv_files[i]);
+    }
+    free(all_csv_files);
+    
+    system("rm -rf test_multi_csv_dir");
+    unlink("test_multi_output.h5");
+    
+    printf("Multi-producer CSV to H5 test passed!\n");
+}
 
 void test_csv_conversion() {
-    printf("Testing CSV to HDF5 conversion...\n");
+    printf("Testing basic CSV to HDF5 conversion...\n");
     
-    // Create test CSV file in current directory
     const char* test_csv = "test_conversion.csv";
     FILE* fp = fopen(test_csv, "w");
     assert(fp != NULL);
@@ -27,7 +212,6 @@ void test_csv_conversion() {
     fprintf(fp, "20240101,0200,362257342,-1,-1,-1,250\n");
     fclose(fp);
     
-    // Convert to HDF5
     csv_to_h5_config_t config = CSV_TO_H5_DEFAULT_CONFIG;
     config.output_h5_file = "test_output.h5";
     config.verbose = 1;
@@ -45,12 +229,10 @@ void test_csv_conversion() {
     assert(stats.unique_timestamps == 2);
     assert(stats.errors == 0);
     
-    // Verify HDF5 content
     struct h5r* reader;
     result = h5r_open("test_output.h5", &reader);
     assert(result == 0);
     
-    // Verify start_datetime attribute using h5mobaku wrapper
     struct h5mobaku* h5m_reader;
     result = h5mobaku_open("test_output.h5", &h5m_reader);
     assert(result == 0);
@@ -60,47 +242,40 @@ void test_csv_conversion() {
     printf("Start datetime attribute verified: %s\n", h5m_reader->start_datetime_str);
     h5mobaku_close(h5m_reader);
     
-    // Prepare mesh search
     cmph_t* hash = meshid_prepare_search();
     assert(hash != NULL);
     
-    // Check values
     int32_t value;
     uint32_t mesh_idx;
     
-    // Check first timestamp, first mesh
     mesh_idx = meshid_search_id(hash, 362257341);
     assert(mesh_idx != MESHID_NOT_FOUND);
     result = h5r_read_cell(reader, 0, mesh_idx, &value);
     assert(result == 0);
     assert(value == 100);
     
-    // Check first timestamp, second mesh
     mesh_idx = meshid_search_id(hash, 362257342);
     assert(mesh_idx != MESHID_NOT_FOUND);
     result = h5r_read_cell(reader, 0, mesh_idx, &value);
     assert(result == 0);
     assert(value == 200);
     
-    // Check second timestamp, first mesh
     mesh_idx = meshid_search_id(hash, 362257341);
     result = h5r_read_cell(reader, 1, mesh_idx, &value);
     assert(result == 0);
     assert(value == 150);
     
-    // Check second timestamp, second mesh
     mesh_idx = meshid_search_id(hash, 362257342);
     result = h5r_read_cell(reader, 1, mesh_idx, &value);
     assert(result == 0);
     assert(value == 250);
     
-    // Cleanup
     h5r_close(reader);
     cmph_destroy(hash);
     unlink(test_csv);
     unlink("test_output.h5");
     
-    printf("CSV to HDF5 conversion test passed!\n");
+    printf("Basic CSV to HDF5 conversion test passed!\n");
 }
 
 void test_append_mode() {
@@ -257,6 +432,7 @@ int main() {
     test_csv_conversion();
     test_append_mode();
     test_write_to_sparse_regions();
+    test_multi_producer_csv_to_h5();
     
     printf("\nAll tests passed!\n");
     return 0;
