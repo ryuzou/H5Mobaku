@@ -259,15 +259,17 @@ static int create_vds_integrated_file(const h5m_create_config_t* config,
                (unsigned long long)vds_time_dim, (unsigned long long)vds_mesh_dim);
     }
     
-    // Convert CSV files first to a temporary file
+    // Convert CSV files directly to the output file using create mode
+    // Create the new data with the desired dataset name directly
     csv_to_h5_config_t csv_config = CSV_TO_H5_DEFAULT_CONFIG;
-    csv_config.output_h5_file = "temp_new_data.h5";
+    csv_config.output_h5_file = config->output_file;
+    csv_config.dataset_name = "/population_new"; // Create directly as /population_new
     csv_config.batch_size = config->batch_size;
     csv_config.verbose = config->verbose;
-    csv_config.create_new = 1; // Create new temp file
+    csv_config.create_new = 1; // Create new file
     
     if (config->verbose) {
-        printf("Converting %zu CSV files to new data section...\n", csv_count);
+        printf("Converting %zu CSV files directly to output file...\n", csv_count);
     }
     
     int result = csv_to_h5_convert_files((const char**)csv_files, csv_count, &csv_config, stats);
@@ -276,45 +278,36 @@ static int create_vds_integrated_file(const h5m_create_config_t* config,
         return -1;
     }
     
-    // Get new data dimensions from temp file
-    hsize_t new_time_dim, new_mesh_dim;
-    if (get_vds_time_dimensions("temp_new_data.h5", &new_time_dim, &new_mesh_dim) < 0) {
-        unlink("temp_new_data.h5");
+    // Reopen the file to get new data dimensions
+    hid_t output_file = H5Fopen(config->output_file, H5F_ACC_RDWR, H5P_DEFAULT);
+    if (output_file < 0) {
+        fprintf(stderr, "Error: Cannot reopen output file: %s\n", config->output_file);
         return -1;
     }
+    
+    // Get new data dimensions from the created /population_new dataset
+    hid_t new_dataset = H5Dopen2(output_file, "/population_new", H5P_DEFAULT);
+    if (new_dataset < 0) {
+        fprintf(stderr, "Error: Cannot open /population_new dataset\n");
+        H5Fclose(output_file);
+        return -1;
+    }
+    
+    hid_t new_dataspace = H5Dget_space(new_dataset);
+    hsize_t actual_dims[2];
+    H5Sget_simple_extent_dims(new_dataspace, actual_dims, NULL);
+    
+    hsize_t new_time_dim = actual_dims[0];
+    hsize_t new_mesh_dim = actual_dims[1];
+    
+    H5Sclose(new_dataspace);
+    H5Dclose(new_dataset);
     
     if (config->verbose) {
         printf("New data dimensions: %llu time points, %llu mesh IDs\n",
                (unsigned long long)new_time_dim, (unsigned long long)new_mesh_dim);
+        printf("Dataset created as /population_new\n");
     }
-    
-    // Create output file
-    hid_t output_file = H5Fcreate(config->output_file, H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
-    if (output_file < 0) {
-        fprintf(stderr, "Error: Cannot create output file: %s\n", config->output_file);
-        unlink("temp_new_data.h5");
-        return -1;
-    }
-    
-    // Copy the temp data as /population_new in output file
-    hid_t temp_file = H5Fopen("temp_new_data.h5", H5F_ACC_RDONLY, H5P_DEFAULT);
-    if (temp_file < 0) {
-        fprintf(stderr, "Error: Cannot open temp file\n");
-        H5Fclose(output_file);
-        unlink("temp_new_data.h5");
-        return -1;
-    }
-    
-    // Copy dataset from temp file to output file as /population_new
-    if (H5Ocopy(temp_file, "/population_data", output_file, "/population_new", H5P_DEFAULT, H5P_DEFAULT) < 0) {
-        fprintf(stderr, "Error: Failed to copy dataset to /population_new\n");
-        H5Fclose(temp_file);
-        H5Fclose(output_file);
-        unlink("temp_new_data.h5");
-        return -1;
-    }
-    
-    H5Fclose(temp_file);
     
     // Calculate combined dataset dimensions
     hsize_t total_time_dim = vds_time_dim + new_time_dim;
@@ -334,8 +327,8 @@ static int create_vds_integrated_file(const h5m_create_config_t* config,
     H5Pset_chunk(dcpl_id, 2, chunk_dims);
     
     // Set fill value
-    int32_t fill_value = 0;
-    H5Pset_fill_value(dcpl_id, H5T_NATIVE_INT32, &fill_value);
+    int32_t vds_fill_value = 0;
+    H5Pset_fill_value(dcpl_id, H5T_NATIVE_INT32, &vds_fill_value);
     
     // *** CRITICAL: Set up VDS mapping BEFORE creating the dataset ***
     
@@ -447,9 +440,6 @@ static int create_vds_integrated_file(const h5m_create_config_t* config,
     H5Pclose(dcpl_id);
     H5Sclose(space_id);
     H5Fclose(output_file);
-    
-    // Remove temporary file
-    unlink("temp_new_data.h5");
     
     if (config->verbose) {
         printf("VDS integration completed successfully\n");

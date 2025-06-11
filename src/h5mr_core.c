@@ -453,6 +453,52 @@ int h5r_open_readwrite(const char *path, struct h5r **out) {
     return 0;
 }
 
+int h5r_open_readwrite_with_dataset(const char *path, const char *dataset_name, struct h5r **out) {
+    if (!path || !dataset_name || !out) return -1;
+    
+    struct h5r *ctx = calloc(1, sizeof(*ctx));
+    if (!ctx) return -1;
+    
+    ctx->is_writable = 1;
+    
+    // Open file for read/write
+    hid_t fapl = H5Pcreate(H5P_FILE_ACCESS);
+    ctx->file = H5Fopen(path, H5F_ACC_RDWR, fapl);
+    H5Pclose(fapl);
+    
+    if (ctx->file < 0) {
+        free(ctx);
+        return -1;
+    }
+    
+    // Open dataset with custom name
+    ctx->dset = H5Dopen2(ctx->file, dataset_name, H5P_DEFAULT);
+    if (ctx->dset < 0) {
+        H5Fclose(ctx->file);
+        free(ctx);
+        return -1;
+    }
+    
+    // Get dataspace
+    ctx->dataspace_id = H5Dget_space(ctx->dset);
+    
+    // Get current dimensions
+    hsize_t dims[2];
+    H5Sget_simple_extent_dims(ctx->dataspace_id, dims, NULL);
+    ctx->rows = dims[0];
+    ctx->cols = dims[1];
+    
+    // Get dataset creation property list
+    ctx->dcpl_id = H5Dget_create_plist(ctx->dset);
+    
+    // Initialize other fields
+    ctx->fd = -1;
+    ctx->base = H5Dget_offset(ctx->dset);
+    
+    *out = ctx;
+    return 0;
+}
+
 int h5r_extend_time_dimension(struct h5r *ctx, size_t new_time_points) {
     if (!ctx || !ctx->is_writable || new_time_points <= ctx->rows) return -1;
     

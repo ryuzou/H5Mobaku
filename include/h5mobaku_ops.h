@@ -55,6 +55,10 @@ void h5mobaku_free_data(int32_t *data);
 int h5mobaku_create(const char *path, const h5r_writer_config_t* config, struct h5mobaku **out);
 int h5mobaku_open_readwrite(const char *path, struct h5mobaku **out);
 
+// Extended functions with configurable dataset name (new)
+int h5mobaku_create_with_dataset(const char *path, const char *dataset_name, const h5r_writer_config_t* config, struct h5mobaku **out);
+int h5mobaku_open_readwrite_with_dataset(const char *path, const char *dataset_name, struct h5mobaku **out);
+
 // Time-based writing API
 int h5mobaku_write_population_single_at_time(struct h5mobaku *ctx, cmph_t *hash, uint32_t mesh_id, const char *datetime_str, int32_t value);
 int h5mobaku_write_population_multi_at_time(struct h5mobaku *ctx, cmph_t *hash, uint32_t *mesh_ids, const int32_t *values, size_t num_meshes, const char *datetime_str);

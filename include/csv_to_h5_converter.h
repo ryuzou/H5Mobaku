@@ -14,6 +14,7 @@ extern "C" {
 // Converter configuration
 typedef struct {
     const char* output_h5_file;     // Output HDF5 filename
+    const char* dataset_name;       // Custom dataset name (default: "/population_data")
     size_t batch_size;              // Number of rows to process in batch
     int verbose;                    // Enable verbose output
     int create_new;                 // Create new file (1) or append (0)
@@ -22,6 +23,7 @@ typedef struct {
 // Default configuration
 #define CSV_TO_H5_DEFAULT_CONFIG { \
     .output_h5_file = "population_debug.h5", \
+    .dataset_name = "/population_data", \
     .batch_size = 10000, \
     .verbose = 0, \
     .create_new = 1 \

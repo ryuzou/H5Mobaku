@@ -717,6 +717,222 @@ int h5mobaku_open_readwrite(const char *path, struct h5mobaku **out) {
     return 0;
 }
 
+// Extended version of h5mobaku_create with configurable dataset name
+int h5mobaku_create_with_dataset(const char *path, const char *dataset_name, const h5r_writer_config_t* config, struct h5mobaku **out) {
+    if (!path || !dataset_name || !out) {
+        fprintf(stderr, "Error: Invalid parameters in h5mobaku_create_with_dataset\n");
+        return -1;
+    }
+    
+    // Use default config if none provided
+    h5r_writer_config_t actual_config;
+    if (config) {
+        actual_config = *config;
+    } else {
+        h5r_writer_config_t default_config = H5R_WRITER_DEFAULT_CONFIG;
+        actual_config = default_config;
+    }
+    
+    // Create file using HDF5 API directly
+    hid_t fcpl = H5Pcreate(H5P_FILE_CREATE);
+    hid_t fapl = H5Pcreate(H5P_FILE_ACCESS);
+    
+    // Set chunk cache size
+    size_t cache_bytes = actual_config.cache_size_mb * 1024 * 1024;
+    H5Pset_cache(fapl, 0, 521, cache_bytes, 0.75);
+    
+    hid_t file = H5Fcreate(path, H5F_ACC_TRUNC, fcpl, fapl);
+    H5Pclose(fcpl);
+    H5Pclose(fapl);
+    
+    if (file < 0) {
+        fprintf(stderr, "Error: Failed to create HDF5 file\n");
+        return -1;
+    }
+    
+    // Create dataspace
+    hsize_t dims[2] = {actual_config.initial_time_points, MOBAKU_MESH_COUNT};
+    hsize_t maxdims[2] = {H5S_UNLIMITED, MOBAKU_MESH_COUNT};
+    hid_t dataspace_id = H5Screate_simple(2, dims, maxdims);
+    
+    if (dataspace_id < 0) {
+        H5Fclose(file);
+        return -1;
+    }
+    
+    // Create dataset creation property list
+    hid_t dcpl_id = H5Pcreate(H5P_DATASET_CREATE);
+    
+    // Set chunk size
+    hsize_t chunk_dims[2] = {actual_config.chunk_time_size, actual_config.chunk_mesh_size};
+    H5Pset_chunk(dcpl_id, 2, chunk_dims);
+    
+    // Set compression if requested
+    if (actual_config.compression_level > 0) {
+        H5Pset_deflate(dcpl_id, actual_config.compression_level);
+    }
+    
+    // Set fill value to 0
+    int32_t fill_value = 0;
+    H5Pset_fill_value(dcpl_id, H5T_NATIVE_INT, &fill_value);
+    
+    // Create dataset with custom name
+    hid_t dset = H5Dcreate2(file, dataset_name, 
+                           H5T_NATIVE_INT, dataspace_id,
+                           H5P_DEFAULT, dcpl_id, H5P_DEFAULT);
+    
+    if (dset < 0) {
+        H5Pclose(dcpl_id);
+        H5Sclose(dataspace_id);
+        H5Fclose(file);
+        return -1;
+    }
+    
+    // Create meshid_list metadata dataset
+    hsize_t meshid_list_dims[1] = {MOBAKU_MESH_COUNT};
+    hid_t meshid_list_space_id = H5Screate_simple(1, meshid_list_dims, NULL);
+    if (meshid_list_space_id >= 0) {
+        hid_t meshid_list_dataset_id = H5Dcreate(file, "meshid_list", H5T_NATIVE_UINT32, 
+                                                meshid_list_space_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        if (meshid_list_dataset_id >= 0) {
+            // Write the mesh ID list from meshid_ops.h extern array
+            H5Dwrite(meshid_list_dataset_id, H5T_NATIVE_UINT32, H5S_ALL, H5S_ALL, H5P_DEFAULT, meshid_list);
+            H5Dclose(meshid_list_dataset_id);
+        }
+        H5Sclose(meshid_list_space_id);
+    }
+    
+    // Create cmph_data dataset
+    size_t mph_size = (size_t)(_binary_meshid_mobaku_mph_end - _binary_meshid_mobaku_mph_start);
+    hsize_t cmph_data_dims[1] = {mph_size};
+    hid_t cmph_data_space_id = H5Screate_simple(1, cmph_data_dims, NULL);
+    if (cmph_data_space_id >= 0) {
+        hid_t cmph_data_dataset_id = H5Dcreate(file, "cmph_data", H5T_NATIVE_UINT8, 
+                                              cmph_data_space_id, H5P_DEFAULT, H5P_DEFAULT, H5P_DEFAULT);
+        if (cmph_data_dataset_id >= 0) {
+            // Write the CMPH data from meshid_ops.h extern array
+            H5Dwrite(cmph_data_dataset_id, H5T_NATIVE_UINT8, H5S_ALL, H5S_ALL, H5P_DEFAULT, _binary_meshid_mobaku_mph_start);
+            H5Dclose(cmph_data_dataset_id);
+        }
+        H5Sclose(cmph_data_space_id);
+    }
+    
+    // Add start_datetime attribute to the dataset
+    hid_t str_type = H5Tcopy(H5T_C_S1);
+    H5Tset_size(str_type, strlen(REFERENCE_MOBAKU_DATETIME) + 1);
+    H5Tset_strpad(str_type, H5T_STR_NULLTERM);
+    
+    hid_t attr_space = H5Screate(H5S_SCALAR);
+    hid_t attr_id = H5Acreate2(dset, "start_datetime", str_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
+    if (attr_id >= 0) {
+        H5Awrite(attr_id, str_type, REFERENCE_MOBAKU_DATETIME);
+        H5Aclose(attr_id);
+    }
+    H5Sclose(attr_space);
+    H5Tclose(str_type);
+    
+    // Close HDF5 resources
+    H5Dclose(dset);
+    H5Pclose(dcpl_id);
+    H5Sclose(dataspace_id);
+    H5Fclose(file);
+    
+    // Now open the file for read/write using h5mobaku_open_readwrite_with_dataset
+    return h5mobaku_open_readwrite_with_dataset(path, dataset_name, out);
+}
+
+// Extended version of h5mobaku_open_readwrite with configurable dataset name
+int h5mobaku_open_readwrite_with_dataset(const char *path, const char *dataset_name, struct h5mobaku **out) {
+    if (!path || !dataset_name || !out) {
+        fprintf(stderr, "Error: Invalid parameters in h5mobaku_open_readwrite_with_dataset\n");
+        return -1;
+    }
+    
+    struct h5mobaku *ctx = calloc(1, sizeof(struct h5mobaku));
+    if (!ctx) {
+        fprintf(stderr, "Error: Memory allocation failed for h5mobaku context\n");
+        return -1;
+    }
+    
+    // Open the underlying h5r context for read/write with custom dataset name
+    int ret = h5r_open_readwrite_with_dataset(path, dataset_name, &ctx->h5r_ctx);
+    if (ret < 0) {
+        free(ctx);
+        return -1;
+    }
+    
+    // Open the file to read start_datetime attribute
+    hid_t file_id = H5Fopen(path, H5F_ACC_RDONLY, H5P_DEFAULT);
+    if (file_id < 0) {
+        fprintf(stderr, "Error: Cannot open HDF5 file for attribute reading: %s\n", path);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    // Try to open the dataset and read start_datetime attribute
+    hid_t dset_id = H5Dopen2(file_id, dataset_name, H5P_DEFAULT);
+    if (dset_id < 0) {
+        fprintf(stderr, "Error: %s dataset not found in file: %s\n", dataset_name, path);
+        H5Fclose(file_id);
+        h5r_close(ctx->h5r_ctx);
+        free(ctx);
+        return -1;
+    }
+    
+    // Read start_datetime attribute if it exists
+    if (H5Aexists(dset_id, "start_datetime") > 0) {
+        hid_t attr_id = H5Aopen(dset_id, "start_datetime", H5P_DEFAULT);
+        if (attr_id >= 0) {
+            hid_t atype = H5Aget_type(attr_id);
+            
+            if (H5Tget_class(atype) == H5T_STRING) {
+                // Get the size of the attribute string
+                size_t attr_size = H5Tget_size(atype);
+                
+                // Allocate buffer for the string
+                char *attr_value = malloc(attr_size + 1);
+                if (attr_value) {
+                    // Read the attribute directly
+                    herr_t status = H5Aread(attr_id, atype, attr_value);
+                    if (status >= 0) {
+                        // Ensure null termination
+                        attr_value[attr_size] = '\0';
+                        
+                        // Parse the datetime string
+                        struct tm tm_time = {0};
+                        
+                        // Try both formats: "YYYY-MM-DD HH:MM:SS" and "YYYY-MM-DDTHH:MM:SS"
+                        if (strptime(attr_value, "%Y-%m-%d %H:%M:%S", &tm_time) != NULL ||
+                            strptime(attr_value, "%Y-%m-%dT%H:%M:%S", &tm_time) != NULL) {
+                            ctx->start_datetime = mktime(&tm_time);
+                            ctx->start_datetime_str = strdup(attr_value);
+                        } else {
+                            fprintf(stderr, "Warning: Failed to parse start_datetime string '%s'\n", attr_value);
+                            ctx->start_datetime = 0;
+                            ctx->start_datetime_str = strdup("2016-01-01 00:00:00"); // fallback
+                        }
+                    }
+                    free(attr_value);
+                }
+            }
+            
+            H5Tclose(atype);
+            H5Aclose(attr_id);
+        }
+    } else {
+        // No start_datetime attribute found, use default
+        ctx->start_datetime = 0;
+        ctx->start_datetime_str = strdup("2016-01-01 00:00:00");
+    }
+    
+    H5Dclose(dset_id);
+    H5Fclose(file_id);
+    
+    *out = ctx;
+    return 0;
+}
+
 int h5mobaku_write_population_single_at_time(struct h5mobaku *ctx, cmph_t *hash, uint32_t mesh_id, const char *datetime_str, int32_t value) {
     if (validate_h5mobaku_context(ctx) < 0) return -1;
     

@@ -42,6 +42,7 @@ typedef struct {
 }
 
 int h5r_open_readwrite(const char *path, struct h5r **out); /* 読み書き用オープン */
+int h5r_open_readwrite_with_dataset(const char *path, const char *dataset_name, struct h5r **out); /* 読み書き用オープン（カスタムデータセット名） */
 int h5r_extend_time_dimension(struct h5r *ctx, size_t new_time_points); /* 時間軸拡張 */
 int h5r_write_cell(struct h5r *ctx, uint64_t row, uint64_t col, int32_t value); /* 単一セル書き込み */
 int h5r_write_cells(struct h5r *ctx, uint64_t row, const uint64_t *cols, const int32_t *values, size_t ncols); /* 複数セル書き込み */
