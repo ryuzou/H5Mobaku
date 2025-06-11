@@ -503,7 +503,7 @@ int csv_to_h5_convert_files(const char** csv_filenames, size_t num_files,
     }
     
     // Signal consumer to stop by enqueuing a NULL sentinel value
-    should_stop = 1;
+    //should_stop = 1;
     enqueue(&queue, NULL);
     
     // Wait for consumer thread

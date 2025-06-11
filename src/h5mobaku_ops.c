@@ -534,15 +534,17 @@ int h5mobaku_create(const char *path, const h5r_writer_config_t* config, struct 
         H5Sclose(cmph_data_space_id);
     }
     
-    // Add start_datetime attribute to the dataset
+    // Add start_datetime attribute to the dataset (variable-length UTF-8 string)
     hid_t str_type = H5Tcopy(H5T_C_S1);
-    H5Tset_size(str_type, strlen(REFERENCE_MOBAKU_DATETIME) + 1);
+    H5Tset_size(str_type, H5T_VARIABLE);
     H5Tset_strpad(str_type, H5T_STR_NULLTERM);
+    H5Tset_cset(str_type, H5T_CSET_UTF8);
     
     hid_t attr_space = H5Screate(H5S_SCALAR);
     hid_t attr_id = H5Acreate2(dset, "start_datetime", str_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
     if (attr_id >= 0) {
-        H5Awrite(attr_id, str_type, REFERENCE_MOBAKU_DATETIME);
+        const char *datetime_str = REFERENCE_MOBAKU_DATETIME;
+        H5Awrite(attr_id, str_type, &datetime_str);
         H5Aclose(attr_id);
     }
     H5Sclose(attr_space);
@@ -763,15 +765,17 @@ int h5mobaku_create_with_dataset(const char *path, const char *dataset_name, con
         H5Sclose(cmph_data_space_id);
     }
     
-    // Add start_datetime attribute to the dataset
+    // Add start_datetime attribute to the dataset (variable-length UTF-8 string)
     hid_t str_type = H5Tcopy(H5T_C_S1);
-    H5Tset_size(str_type, strlen(REFERENCE_MOBAKU_DATETIME) + 1);
+    H5Tset_size(str_type, H5T_VARIABLE);
     H5Tset_strpad(str_type, H5T_STR_NULLTERM);
+    H5Tset_cset(str_type, H5T_CSET_UTF8);
     
     hid_t attr_space = H5Screate(H5S_SCALAR);
     hid_t attr_id = H5Acreate2(dset, "start_datetime", str_type, attr_space, H5P_DEFAULT, H5P_DEFAULT);
     if (attr_id >= 0) {
-        H5Awrite(attr_id, str_type, REFERENCE_MOBAKU_DATETIME);
+        const char *datetime_str = REFERENCE_MOBAKU_DATETIME;
+        H5Awrite(attr_id, str_type, &datetime_str);
         H5Aclose(attr_id);
     }
     H5Sclose(attr_space);
