@@ -224,7 +224,7 @@ void test_basic_h5m_create() {
     volatile int expected_files = create_new_csv_files(test_dir);
     
     printf("\nStep 2: Running h5m-create without VDS...\n");
-    char output[4096];
+    char output[65536];
     char args[512];
     snprintf(args, sizeof(args), "-o test_basic.h5 -d %s --verbose", test_dir);
     
@@ -275,7 +275,7 @@ void test_vds_h5m_create() {
     int new_files = create_new_csv_files(config.new_dir);
     
     printf("\nStep 3: Creating historical H5 file...\n");
-    char output[4096];
+    char output[65536];
     char args[512];
     snprintf(args, sizeof(args), "-o %s -d %s --verbose", 
              config.historical_h5, config.historical_dir);
@@ -387,7 +387,7 @@ void test_vds_h5m_create() {
 void test_h5m_create_error_cases() {
     printf("=== Testing H5M-Create Error Cases ===\n");
     
-    char output[4096];
+    char output[65536];
     int result;
     
     printf("Test 1: Missing required arguments...\n");
@@ -463,7 +463,7 @@ void test_large_scale_h5m_create() {
     printf("Running h5m-create on large dataset...\n");
     clock_t start_time = clock();
     
-    char output[4096];
+    char output[65536];
     char args[512];
     snprintf(args, sizeof(args), "-o test_large.h5 -d %s --verbose -b 50000", large_dir);
     
