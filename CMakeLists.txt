@@ -214,6 +214,18 @@ if(H5MR_BUILD_TESTS)
     )
     add_test(NAME H5MR.test_csv_ops COMMAND test_csv_ops)
     add_dependencies(test_csv_ops ${H5MR_MAIN_TARGET})
+    
+    # Add test_h5m_create executable
+    add_executable(test_h5m_create tests/test_h5m_create.c)
+    target_link_libraries(test_h5m_create PRIVATE H5MR::h5mr ${CMPH_LIBRARIES})
+    target_link_directories(test_h5m_create PRIVATE ${LOCAL_INCLUDE}/lib)
+    target_include_directories(test_h5m_create PRIVATE ${CMPH_INCLUDE_DIRS})
+    set_target_properties(test_h5m_create PROPERTIES
+        C_STANDARD 23
+        C_STANDARD_REQUIRED ON
+    )
+    add_test(NAME H5MR.test_h5m_create COMMAND test_h5m_create)
+    add_dependencies(test_h5m_create ${H5MR_MAIN_TARGET} h5m-create)
 endif()
 
 # ───────────────────────────────────
@@ -232,18 +244,18 @@ if(H5MR_BUILD_CLI)
     )
     add_dependencies(h5m-reader ${H5MR_MAIN_TARGET})
     
-    add_executable(csv-to-h5 src/csv_to_h5_cli.c)
-    target_link_libraries(csv-to-h5 PRIVATE H5MR::h5mr ${CMPH_LIBRARIES})
-    target_link_directories(csv-to-h5 PRIVATE ${LOCAL_INCLUDE}/lib)
-    target_include_directories(csv-to-h5 PRIVATE ${CMPH_INCLUDE_DIRS})
-    set_target_properties(csv-to-h5 PROPERTIES
+    add_executable(h5m-create src/h5m-create.c)
+    target_link_libraries(h5m-create PRIVATE H5MR::h5mr ${CMPH_LIBRARIES} ${HDF5_C_LIBRARIES})
+    target_link_directories(h5m-create PRIVATE ${LOCAL_INCLUDE}/lib)
+    target_include_directories(h5m-create PRIVATE ${CMPH_INCLUDE_DIRS})
+    set_target_properties(h5m-create PROPERTIES
         C_STANDARD 23
         C_STANDARD_REQUIRED ON
     )
-    add_dependencies(csv-to-h5 ${H5MR_MAIN_TARGET})
+    add_dependencies(h5m-create ${H5MR_MAIN_TARGET})
     
     # Install CLI tools
-    install(TARGETS h5m-reader csv-to-h5
+    install(TARGETS h5m-reader h5m-create
             RUNTIME DESTINATION bin
     )
 endif()

@@ -193,7 +193,7 @@ void meshid_free_string_array(char **str_array, size_t nkeys) {
 
 cmph_t * meshid_create_local_mph_from_int(int *int_array, size_t nkeys) {
     char** str_array = meshid_uint_array_to_string_array(int_array, nkeys);
-    if (str_array == NULL) return nullptr; // Handle case when str_array is NULL
+    if (str_array == NULL) return NULL; // Handle case when str_array is NULL
 
     cmph_io_adapter_t* source = cmph_io_vector_adapter(str_array, nkeys);
     cmph_config_t* config = cmph_config_new(source);
