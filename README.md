@@ -135,22 +135,22 @@ Options:
 - `-r, --raw`: Output raw uint32 byte stream
 - `-h, --help`: Show help message
 
-#### csv-to-h5 - CSV to HDF5 Converter
+#### h5m-create - CSV to HDF5 Converter
 
-The `csv-to-h5` tool converts CSV population data files to HDF5 format:
+The `h5m-create` tool converts CSV population data files to HDF5 format:
 
 ```bash
 # Convert single CSV file
-./csv-to-h5 -v -o output.h5 data.csv
+./h5m-create -v -o output.h5 data.csv
 
 # Convert multiple CSV files
-./csv-to-h5 -v -o output.h5 file1.csv file2.csv file3.csv
+./h5m-create -v -o output.h5 file1.csv file2.csv file3.csv
 
 # Process all CSV files in a directory
-./csv-to-h5 -d ./data -p "*_mesh_pop_*.csv" -o processed.h5
+./h5m-create -d ./data -p "*_mesh_pop_*.csv" -o processed.h5
 
 # Append to existing HDF5 file
-./csv-to-h5 -a -o existing.h5 new_data.csv
+./h5m-create -a -o existing.h5 new_data.csv
 ```
 
 CSV Format (expected columns):
@@ -167,8 +167,28 @@ Options:
 - `-d, --directory <dir>`: Process all CSV files in directory
 - `-p, --pattern <pattern>`: File pattern to match (default: *.csv)
 - `-a, --append`: Append to existing HDF5 file
-- `-v, --verbose`: Enable verbose output
+- `-v, --vds-source <file>`: Reference dataset for VDS integration
+- `-y, --vds-year <year>`: Cutoff year for VDS reference
+- `--verbose`: Enable verbose output
 - `-h, --help`: Show help message
+
+#### Virtual Dataset (VDS) Integration
+
+When `--vds-source` and `--vds-year` are specified, the output file creates a Virtual Dataset that references historical data from the source file and combines it with new CSV data:
+
+```bash
+# Create VDS with data before 2020 referenced from existing file
+./h5m-create -o combined.h5 -d ./new_data -v historical.h5 -y 2020
+
+# Process new data and link to historical data seamlessly
+./h5m-create -o output.h5 -d ./csv_files -p "data_*.csv" -v base.h5 -y 2021 --verbose
+```
+
+This approach:
+- References historical data virtually (no duplication)
+- Appends new CSV data after the cutoff year
+- Creates seamless time series access to both datasets
+- Significantly reduces storage requirements
 
 ## API Reference
 
