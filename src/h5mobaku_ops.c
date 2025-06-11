@@ -114,20 +114,12 @@ int h5mobaku_open(const char *path, struct h5mobaku **out) {
         return -1;
     }
     
-    hid_t atype_mem = H5Tget_native_type(atype, H5T_DIR_ASCEND);
-    if (atype_mem < 0) {
-        fprintf(stderr, "Error: Failed to get native type\n");
-        H5Tclose(atype);
-        H5Aclose(attr_id);
-        H5Dclose(dset_id);
-        H5Fclose(file_id);
-        h5r_close(ctx->h5r_ctx);
-        free(ctx);
-        return -1;
-    }
-    
-    char attr_value[64];
-    herr_t status = H5Aread(attr_id, atype_mem, attr_value);
+    hid_t atype_mem = H5Tcopy(H5T_C_S1);
+    H5Tset_size(atype_mem, H5T_VARIABLE);
+    H5Tset_cset(atype_mem, H5T_CSET_UTF8);
+
+    char *attr_value = NULL;
+    herr_t status = H5Aread(attr_id, atype_mem, &attr_value);
     if (status < 0) {
         fprintf(stderr, "Error: Failed to read start_datetime attribute\n");
         H5Tclose(atype_mem);
@@ -141,6 +133,7 @@ int h5mobaku_open(const char *path, struct h5mobaku **out) {
     }
     
     ctx->start_datetime_str = strdup(attr_value);
+    H5free_memory(attr_value);
     if (!ctx->start_datetime_str) {
         fprintf(stderr, "Error: Memory allocation failed for start_datetime_str\n");
         H5Tclose(atype_mem);
@@ -155,7 +148,7 @@ int h5mobaku_open(const char *path, struct h5mobaku **out) {
     
     // Parse the datetime string to time_t
     struct tm tm = {0};
-    if (strptime(ctx->start_datetime_str, "%Y-%m-%d %H:%M:%S", &tm) != NULL) {
+    if (strptime(ctx->start_datetime_str, "%Y-%m-%dT%H:%M:%S", &tm) != NULL) {
         ctx->start_datetime = mktime(&tm);
     } else {
         fprintf(stderr, "Error: Failed to parse start_datetime string '%s'\n", ctx->start_datetime_str);
@@ -637,20 +630,12 @@ int h5mobaku_open_readwrite(const char *path, struct h5mobaku **out) {
         return -1;
     }
     
-    hid_t atype_mem = H5Tget_native_type(atype, H5T_DIR_ASCEND);
-    if (atype_mem < 0) {
-        fprintf(stderr, "Error: Failed to get native type\n");
-        H5Tclose(atype);
-        H5Aclose(attr_id);
-        H5Dclose(dset_id);
-        H5Fclose(file_id);
-        h5r_close(ctx->h5r_ctx);
-        free(ctx);
-        return -1;
-    }
-    
-    char attr_value[64];
-    herr_t status = H5Aread(attr_id, atype_mem, attr_value);
+    hid_t atype_mem = H5Tcopy(H5T_C_S1);
+    H5Tset_size(atype_mem, H5T_VARIABLE);
+    H5Tset_cset(atype_mem, H5T_CSET_UTF8);
+
+    char *attr_value = NULL;
+    herr_t status = H5Aread(attr_id, atype_mem, &attr_value);
     if (status < 0) {
         fprintf(stderr, "Error: Failed to read start_datetime attribute\n");
         H5Tclose(atype_mem);
@@ -662,8 +647,9 @@ int h5mobaku_open_readwrite(const char *path, struct h5mobaku **out) {
         free(ctx);
         return -1;
     }
-    
+
     ctx->start_datetime_str = strdup(attr_value);
+    H5free_memory(attr_value);
     if (!ctx->start_datetime_str) {
         fprintf(stderr, "Error: Memory allocation failed for start_datetime_str\n");
         H5Tclose(atype_mem);
@@ -678,7 +664,7 @@ int h5mobaku_open_readwrite(const char *path, struct h5mobaku **out) {
     
     // Parse the datetime string to time_t
     struct tm tm = {0};
-    if (strptime(ctx->start_datetime_str, "%Y-%m-%d %H:%M:%S", &tm) != NULL) {
+    if (strptime(ctx->start_datetime_str, "%Y-%m-%dT%H:%M:%S", &tm) != NULL) {
         ctx->start_datetime = mktime(&tm);
     } else {
         fprintf(stderr, "Error: Failed to parse start_datetime string '%s'\n", ctx->start_datetime_str);
