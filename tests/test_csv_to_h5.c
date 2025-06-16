@@ -50,16 +50,40 @@ static int create_test_directory_structure(const char* base_dir) {
         int dir_type = rand() % 3;
         
         if (dir_type == 0) {
-            snprintf(path, sizeof(path), "%s/data_%03d.csv", base_dir, i);
+            snprintf(path, sizeof(path), "%s/data_%03d_00000.csv", base_dir, i);
         } else if (dir_type == 1) {
             int region_idx = rand() % 5;
-            snprintf(path, sizeof(path), "%s/%s/data_%03d.csv", 
+            snprintf(path, sizeof(path), "%s/%s/data_%03d_00000.csv", 
                      base_dir, regions[region_idx], i);
         } else {
             int region_idx = rand() % 5;
             int subregion_idx = rand() % 3;
-            snprintf(path, sizeof(path), "%s/%s/%s/data_%03d.csv", 
+            snprintf(path, sizeof(path), "%s/%s/%s/data_%03d_00000.csv", 
                      base_dir, regions[region_idx], subregions[subregion_idx], i);
+        }
+        
+        // Also create some files that should be filtered out (not ending with 00000.csv)
+        char filtered_path[512];
+        if (i < 3) {  // Only create a few filtered files
+            if (dir_type == 0) {
+                snprintf(filtered_path, sizeof(filtered_path), "%s/data_%03d_00001.csv", base_dir, i);
+            } else if (dir_type == 1) {
+                int region_idx = rand() % 5;
+                snprintf(filtered_path, sizeof(filtered_path), "%s/%s/data_%03d_00001.csv", 
+                         base_dir, regions[region_idx], i);
+            } else {
+                int region_idx = rand() % 5;
+                int subregion_idx = rand() % 3;
+                snprintf(filtered_path, sizeof(filtered_path), "%s/%s/%s/data_%03d_00001.csv", 
+                         base_dir, regions[region_idx], subregions[subregion_idx], i);
+            }
+            
+            FILE* filtered_fp = fopen(filtered_path, "w");
+            if (filtered_fp) {
+                fprintf(filtered_fp, "date,time,area,residence,age,gender,population\n");
+                fprintf(filtered_fp, "20160101,0100,362257341,-1,-1,-1,999\n");  // Different value to detect if processed
+                fclose(filtered_fp);
+            }
         }
         
         FILE* fp = fopen(path, "w");
@@ -201,7 +225,7 @@ void test_multi_producer_csv_to_h5() {
 void test_csv_conversion() {
     printf("Testing basic CSV to HDF5 conversion...\n");
     
-    const char* test_csv = "test_conversion.csv";
+    const char* test_csv = "test_conversion_00000.csv";
     FILE* fp = fopen(test_csv, "w");
     assert(fp != NULL);
     
@@ -294,7 +318,7 @@ void test_append_mode() {
     printf("\nTesting append mode...\n");
     
     // Create first CSV file
-    const char* csv1 = "test_append1.csv";
+    const char* csv1 = "test_append1_00000.csv";
     FILE* fp = fopen(csv1, "w");
     assert(fp != NULL);
     
@@ -303,7 +327,7 @@ void test_append_mode() {
     fclose(fp);
     
     // Create second CSV file
-    const char* csv2 = "test_append2.csv";
+    const char* csv2 = "test_append2_00000.csv";
     fp = fopen(csv2, "w");
     assert(fp != NULL);
     
@@ -371,26 +395,26 @@ void test_write_to_sparse_regions() {
     // File 3: T2 (middle)
     
     // Create CSV files
-    FILE* fp = fopen("sparse1.csv", "w");
+    FILE* fp = fopen("sparse1_00000.csv", "w");
     fprintf(fp, "date,time,area,residence,age,gender,population\n");
     fprintf(fp, "20160101,0100,362257341,-1,-1,-1,100\n");
     fprintf(fp, "20160101,0100,362257342,-1,-1,-1,200\n");
     fclose(fp);
     
-    fp = fopen("sparse2.csv", "w");
+    fp = fopen("sparse2_00000.csv", "w");
     fprintf(fp, "date,time,area,residence,age,gender,population\n");
     fprintf(fp, "20160101,0300,362257341,-1,-1,-1,300\n");
     fprintf(fp, "20160101,0300,362257342,-1,-1,-1,400\n");
     fclose(fp);
     
-    fp = fopen("sparse3.csv", "w");
+    fp = fopen("sparse3_00000.csv", "w");
     fprintf(fp, "date,time,area,residence,age,gender,population\n");
     fprintf(fp, "20160101,0200,362257341,-1,-1,-1,150\n");
     fprintf(fp, "20160101,0200,362257342,-1,-1,-1,250\n");
     fclose(fp);
     
     // Convert all files together
-    const char* files[] = {"sparse1.csv", "sparse2.csv", "sparse3.csv"};
+    const char* files[] = {"sparse1_00000.csv", "sparse2_00000.csv", "sparse3_00000.csv"};
     csv_to_h5_config_t config = CSV_TO_H5_DEFAULT_CONFIG;
     config.output_h5_file = "test_sparse.h5";
     
@@ -435,9 +459,9 @@ void test_write_to_sparse_regions() {
     // Cleanup
     h5r_close(reader);
     cmph_destroy(hash);
-    unlink("sparse1.csv");
-    unlink("sparse2.csv");
-    unlink("sparse3.csv");
+    unlink("sparse1_00000.csv");
+    unlink("sparse2_00000.csv");
+    unlink("sparse3_00000.csv");
     unlink("test_sparse.h5");
     
     printf("Sparse region write test passed!\n");

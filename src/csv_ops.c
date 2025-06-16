@@ -683,6 +683,10 @@ void find_csv_files(const char* dir_path, char*** files, size_t* count, size_t* 
             } else if (S_ISREG(st.st_mode)) {
                 size_t len = strlen(entry->d_name);
                 if (len > 4 && strcmp(entry->d_name + len - 4, ".csv") == 0) {
+                    // Only process files ending with "00000.csv"
+                    if (len < 9 || strcmp(entry->d_name + len - 9, "00000.csv") != 0) {
+                        continue;
+                    }
                     if (*count >= *capacity) {
                         *capacity *= 2;
                         *files = realloc(*files, *capacity * sizeof(char*));

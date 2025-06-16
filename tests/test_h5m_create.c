@@ -60,15 +60,15 @@ static int create_historical_csv_files(const char* base_dir) {
         int dir_type = rand() % 3;
         
         if (dir_type == 0) {
-            snprintf(path, sizeof(path), "%s/historical_%03d.csv", base_dir, i);
+            snprintf(path, sizeof(path), "%s/historical_%03d_00000.csv", base_dir, i);
         } else if (dir_type == 1) {
             int region_idx = rand() % 5;
-            snprintf(path, sizeof(path), "%s/%s/historical_%03d.csv", 
+            snprintf(path, sizeof(path), "%s/%s/historical_%03d_00000.csv", 
                      base_dir, regions[region_idx], i);
         } else {
             int region_idx = rand() % 5;
             int subregion_idx = rand() % 3;
-            snprintf(path, sizeof(path), "%s/%s/%s/historical_%03d.csv", 
+            snprintf(path, sizeof(path), "%s/%s/%s/historical_%03d_00000.csv", 
                      base_dir, regions[region_idx], subregions[subregion_idx], i);
         }
         
@@ -136,10 +136,10 @@ static int create_new_csv_files(const char* base_dir) {
         int dir_type = rand() % 2;
         
         if (dir_type == 0) {
-            snprintf(path, sizeof(path), "%s/new_%03d.csv", base_dir, i);
+            snprintf(path, sizeof(path), "%s/new_%03d_00000.csv", base_dir, i);
         } else {
             int district_idx = rand() % 4;
-            snprintf(path, sizeof(path), "%s/%s/new_%03d.csv", 
+            snprintf(path, sizeof(path), "%s/%s/new_%03d_00000.csv", 
                      base_dir, districts[district_idx], i);
         }
         
@@ -524,7 +524,7 @@ void test_large_scale_h5m_create() {
     // Generate 100 files with 1000 rows each
     for (int i = 0; i < 100; i++) {
         char path[512];
-        snprintf(path, sizeof(path), "%s/large_%03d.csv", large_dir, i);
+        snprintf(path, sizeof(path), "%s/large_%03d_00000.csv", large_dir, i);
         
         FILE* fp = fopen(path, "w");
         if (!fp) continue;
@@ -603,7 +603,7 @@ void test_bulk_write_h5m_create() {
         // Create a few CSV files per directory
         for (int f = 0; f < 2; f++) {
             char file_path[512];
-            snprintf(file_path, sizeof(file_path), "%s/data_%02d.csv", dir_path, f);
+            snprintf(file_path, sizeof(file_path), "%s/data_%02d_00000.csv", dir_path, f);
             
             FILE* fp = fopen(file_path, "w");
             if (!fp) {

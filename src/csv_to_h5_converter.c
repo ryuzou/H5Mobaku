@@ -871,6 +871,11 @@ int csv_to_h5_convert_directory(const char* directory, const char* pattern,
     
     while ((entry = readdir(dir)) != NULL) {
         if (fnmatch(pattern, entry->d_name, 0) == 0) {
+            // Only process files ending with "00000.csv"
+            size_t name_len = strlen(entry->d_name);
+            if (name_len < 9 || strcmp(entry->d_name + name_len - 9, "00000.csv") != 0) {
+                continue;
+            }
             if (file_count >= file_capacity) {
                 file_capacity *= 2;
                 char** new_filenames = realloc(filenames, file_capacity * sizeof(char*));
