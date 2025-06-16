@@ -570,6 +570,41 @@ int h5r_write_cells(struct h5r *ctx, uint64_t row, const uint64_t *cols, const i
     return (status < 0) ? -1 : 0;
 }
 
+int h5r_write_bulk_buffer(struct h5r *ctx, const int32_t *buffer, size_t time_points, size_t mesh_count) {
+    if (!ctx || !ctx->is_writable || !buffer) return -1;
+    
+    // Extend dataset if necessary
+    if (time_points > ctx->rows) {
+        if (h5r_extend_time_dimension(ctx, time_points) < 0) {
+            return -1;
+        }
+    }
+    
+    // Create memory dataspace for the entire buffer
+    hsize_t mem_dims[2] = {time_points, mesh_count};
+    hid_t mem_space = H5Screate_simple(2, mem_dims, NULL);
+    if (mem_space < 0) {
+        return -1;
+    }
+    
+    // Select hyperslab in file dataspace
+    hsize_t start[2] = {0, 0};
+    hsize_t count[2] = {time_points, mesh_count};
+    
+    herr_t status = H5Sselect_hyperslab(ctx->dataspace_id, H5S_SELECT_SET, 
+                                       start, NULL, count, NULL);
+    if (status < 0) {
+        H5Sclose(mem_space);
+        return -1;
+    }
+    
+    // Perform bulk write
+    status = H5Dwrite(ctx->dset, H5T_NATIVE_INT, mem_space, 
+                     ctx->dataspace_id, H5P_DEFAULT, buffer);
+    
+    H5Sclose(mem_space);
+    return (status < 0) ? -1 : 0;
+}
 
 int h5r_flush(struct h5r *ctx) {
     if (!ctx || !ctx->is_writable) return -1;

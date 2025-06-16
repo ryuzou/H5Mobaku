@@ -489,6 +489,103 @@ void test_large_scale_h5m_create() {
     printf("Large-scale test passed!\n\n");
 }
 
+// Test bulk write mode
+void test_bulk_write_h5m_create() {
+    printf("=== Testing Bulk Write Mode H5M-Create ===\n");
+    
+    const char* bulk_dir = "test_bulk_data";
+    mkdir(bulk_dir, 0755);
+    
+    printf("Creating test data for bulk write mode...\n");
+    
+    // Create test CSV files - enough to test bulk mode but not require full 51GB
+    // Generate files for a small subset to test functionality
+    char sub_dirs[][20] = {"20230101", "20230102", "20230103"};
+    
+    for (int d = 0; d < 3; d++) {
+        char dir_path[512];
+        snprintf(dir_path, sizeof(dir_path), "%s/%s", bulk_dir, sub_dirs[d]);
+        mkdir(dir_path, 0755);
+        
+        // Create a few CSV files per directory
+        for (int f = 0; f < 2; f++) {
+            char file_path[512];
+            snprintf(file_path, sizeof(file_path), "%s/data_%02d.csv", dir_path, f);
+            
+            FILE* fp = fopen(file_path, "w");
+            if (!fp) {
+                fprintf(stderr, "Failed to create %s\n", file_path);
+                continue;
+            }
+            
+            fprintf(fp, "date,time,area,residence,age,gender,population\n");
+            
+            // Write some test data
+            const uint32_t test_meshes[] = {362257341, 523365702, 533946132};
+            int year = 2023;
+            int month = 1;
+            int day = d + 1;
+            
+            for (int hour = 0; hour < 24; hour++) {
+                for (int m = 0; m < 3; m++) {
+                    int population = rand() % 1000 + 100;
+                    fprintf(fp, "%04d%02d%02d,%02d00,%u,-1,-1,-1,%d\n",
+                            year, month, day, hour, test_meshes[m], population);
+                }
+            }
+            
+            fclose(fp);
+        }
+    }
+    
+    // Test 1: Run with bulk write mode
+    printf("\nTest 1: Running h5m-create with --bulk-write...\n");
+    char output[65536];
+    char args[512];
+    snprintf(args, sizeof(args), "-o test_bulk.h5 -d %s --bulk-write --verbose", bulk_dir);
+    
+    int result = run_h5m_create(args, output, sizeof(output));
+    if (result != 0) {
+        fprintf(stderr, "h5m-create failed with bulk write mode: %s\n", output);
+    }
+    assert(result == 0);
+    
+    // Verify output contains bulk mode messages
+    assert(strstr(output, "Bulk write mode: ENABLED") != NULL);
+    assert(strstr(output, "Bulk mode enabled, consumer idle") != NULL);
+    
+    // Test 2: Verify the created file
+    printf("Test 2: Verifying bulk-written HDF5 file...\n");
+    struct stat st;
+    assert(stat("test_bulk.h5", &st) == 0);
+    printf("  Created HDF5 file size: %ld bytes\n", st.st_size);
+    
+    // Test 3: Verify data can be read correctly
+    struct h5mobaku* h5m_reader = NULL;
+    result = h5mobaku_open("test_bulk.h5", &h5m_reader);
+    assert(result == 0);
+    assert(h5m_reader != NULL);
+    
+    // Initialize mesh hash for lookups
+    cmph_t* hash = meshid_prepare_search();
+    assert(hash != NULL);
+    
+    // Read and verify some data points
+    uint32_t test_mesh = 362257341;
+    int32_t pop_value = h5mobaku_read_population_single(h5m_reader->h5r_ctx, hash, test_mesh, 0);
+    printf("  Read population for mesh %u at time 0: %d\n", test_mesh, pop_value);
+    assert(pop_value >= 100 && pop_value < 1100); // Within expected range
+    
+    cmph_destroy(hash);
+    h5mobaku_close(h5m_reader);
+    
+    // Cleanup
+    system("rm -rf test_bulk_data");
+    unlink("test_bulk.h5");
+    
+    printf("Bulk write mode test passed!\n\n");
+}
+
 int main() {
     printf("Starting H5M-Create comprehensive tests...\n\n");
     
@@ -504,6 +601,9 @@ int main() {
     // Test large-scale performance
     //test_large_scale_h5m_create();
     
+    // Test bulk write mode
+    test_bulk_write_h5m_create();
+    
     printf("=== All H5M-Create Tests Passed! ===\n");
     
     printf("\nTest Summary:\n");
@@ -513,6 +613,7 @@ int main() {
     printf("✓ Error handling and validation\n");
     printf("✓ Large-scale performance\n");
     printf("✓ Data integrity across VDS boundaries\n");
+    printf("✓ Bulk write mode (51 GiB optimization)\n");
     
     return 0;
 }

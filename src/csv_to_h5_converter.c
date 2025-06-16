@@ -305,43 +305,18 @@ static int perform_bulk_write(converter_ctx_t* ctx, int verbose) {
         }
     }
     
-    // Write each time point by writing all mesh cells for that time
+    // True bulk write: write entire buffer in single HDF5 operation
     if (verbose) {
-        printf("Writing %zu time rows with %zu mesh points each...\n", 
-               REQUIRED_TIME_POINTS, REQUIRED_MESH_COUNT);
+        printf("Performing true bulk write of entire buffer (%.2f GiB)...\n", 
+               (double)ctx->year_buffer_size / (1024.0 * 1024.0 * 1024.0));
     }
     
-    // Prepare column indices array (0, 1, 2, ..., REQUIRED_MESH_COUNT-1)
-    uint64_t* col_indices = malloc(REQUIRED_MESH_COUNT * sizeof(uint64_t));
-    if (!col_indices) {
-        fprintf(stderr, "Error: Failed to allocate memory for column indices\n");
+    // Perform single bulk write operation
+    if (h5r_write_bulk_buffer(ctx->writer->h5r_ctx, ctx->year_buffer, 
+                              REQUIRED_TIME_POINTS, REQUIRED_MESH_COUNT) < 0) {
+        fprintf(stderr, "Error: Bulk buffer write failed\n");
         return -1;
     }
-    
-    for (size_t i = 0; i < REQUIRED_MESH_COUNT; i++) {
-        col_indices[i] = i;
-    }
-    
-    for (size_t time_idx = 0; time_idx < REQUIRED_TIME_POINTS; time_idx++) {
-        // Calculate the starting position in the year buffer for this time row
-        int32_t* row_data = &ctx->year_buffer[time_idx * REQUIRED_MESH_COUNT];
-        
-        // Write all cells for this time point using h5r_write_cells
-        if (h5r_write_cells(ctx->writer->h5r_ctx, time_idx, col_indices, row_data, REQUIRED_MESH_COUNT) < 0) {
-            fprintf(stderr, "Error: Failed to write row %zu during bulk write\n", time_idx);
-            free(col_indices);
-            return -1;
-        }
-        
-        // Show progress for large writes
-        if (verbose && (time_idx % 1000 == 0 || time_idx == REQUIRED_TIME_POINTS - 1)) {
-            printf("  Progress: %zu/%zu rows written (%.1f%%)\n", 
-                   time_idx + 1, REQUIRED_TIME_POINTS, 
-                   100.0 * (time_idx + 1) / REQUIRED_TIME_POINTS);
-        }
-    }
-    
-    free(col_indices);
     
     if (verbose) {
         printf("Bulk HDF5 write completed successfully\n");
@@ -625,7 +600,7 @@ int csv_to_h5_convert_files(const char** csv_filenames, size_t num_files,
     }
     
     // Determine number of producer threads (max 8, or 1 per 2 files)
-    const int max_threads = 32;
+    const int max_threads = 64;
     int num_threads = (int)num_files / 2;
     if (num_threads < 1) num_threads = 1;
     if (num_threads > max_threads) num_threads = max_threads;
