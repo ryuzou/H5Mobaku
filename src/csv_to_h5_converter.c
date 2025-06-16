@@ -656,7 +656,7 @@ int csv_to_h5_convert_files(const char** csv_filenames, size_t num_files,
     }
     
     // Determine number of producer threads (max 8, or 1 per 2 files)
-    const int max_threads = 64;
+    const int max_threads = 32;
     int num_threads = (int)num_files / 2;
     if (num_threads < 1) num_threads = 1;
     if (num_threads > max_threads) num_threads = max_threads;

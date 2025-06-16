@@ -74,6 +74,12 @@ void free_population_data(population_data_t* data);
 // Recursively find all CSV files in directory
 void find_csv_files(const char* dir_path, char*** files, size_t* count, size_t* capacity);
 
+// Check if SIMD optimization is enabled
+int csv_is_simd_enabled(void);
+
+// Check if AVX-512 optimization is enabled
+int csv_is_avx512_enabled(void);
+
 #ifdef __cplusplus
 }
 #endif

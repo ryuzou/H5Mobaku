@@ -28,10 +28,10 @@ endif()
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 
-set(CMAKE_C_FLAGS_DEBUG "-g -O0 -DDEBUG -Wall -Wextra")
-set(CMAKE_C_FLAGS_RELEASE "-O3 -march=native")
-set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -DDEBUG -Wall -Wextra")
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native")
+set(CMAKE_C_FLAGS_DEBUG "-g -O0 -DDEBUG -Wall -Wextra -march=native -mavx512f")
+set(CMAKE_C_FLAGS_RELEASE "-O3 -march=native -mavx512f")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -DDEBUG -Wall -Wextra -march=native -mavx512f")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native -mavx512f")
 
 # Copy .env file to build directory if it exists
 if(EXISTS "${CMAKE_SOURCE_DIR}/.env")
