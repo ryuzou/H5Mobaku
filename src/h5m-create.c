@@ -333,7 +333,8 @@ static int create_vds_integrated_file(const h5m_create_config_t* config,
     hid_t dcpl_id = H5Pcreate(H5P_DATASET_CREATE);
     
     // Use existing chunking configuration (from h5mr.h)
-    hsize_t chunk_dims[2] = {8760, 16}; // chunk_time_size=8760, chunk_mesh_size=16
+    // Use larger chunk size to accommodate leap years (366 * 24 = 8784 hours)
+    hsize_t chunk_dims[2] = {8784, 16}; // chunk_time_size=8784 (leap year), chunk_mesh_size=16
     H5Pset_chunk(dcpl_id, 2, chunk_dims);
     
     // Set fill value

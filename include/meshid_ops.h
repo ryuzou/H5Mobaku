@@ -38,7 +38,7 @@ static const int64_t JST_OFFSET_SEC = 9 * 3600;
 
 // Dataset dimensions - updated to match HDF5 specification
 #define NOW_ENTIRE_LEN_FOR_ONE_MESH 74160
-#define HDF5_DATETIME_CHUNK 8760
+#define HDF5_DATETIME_CHUNK 8784
 #define HDF5_MESH_CHUNK 16
 #define NUM_PRODUCERS 32
 #define MESHLIST_ONCE_LEN 16

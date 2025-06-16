@@ -178,8 +178,8 @@ static size_t find_or_add_timestamp(converter_ctx_t* ctx, uint32_t date, uint16_
 }
 
 static int allocate_year_buffer(converter_ctx_t* ctx, bool verbose) {
-    // Calculate buffer size: 8760 hours × MOBAKU_MESH_COUNT meshes × 4 bytes ≈ 51 GiB
-    const size_t HOURS_PER_YEAR = 8760; // Standard year: 365 days * 24 hours
+    // Calculate buffer size: 8784 hours × MOBAKU_MESH_COUNT meshes × 4 bytes ≈ 51 GiB
+    const size_t HOURS_PER_YEAR = 8784; // Leap year: 366 days * 24 hours (max possible)
     const size_t MESH_COUNT = MOBAKU_MESH_COUNT;
     const size_t BYTES_PER_ELEMENT = sizeof(int32_t);
     
@@ -368,7 +368,9 @@ static int perform_bulk_write(converter_ctx_t* ctx, int verbose) {
     size_t current_time_points, mesh_count;
     h5r_get_dimensions(ctx->writer->h5r_ctx, &current_time_points, &mesh_count);
     
-    const size_t REQUIRED_TIME_POINTS = HDF5_DATETIME_CHUNK; // Standard year: 365 days * 24 hours
+    // Calculate time points based on the actual year (check if it's a leap year)
+    bool is_leap = (data_year % 4 == 0 && data_year % 100 != 0) || (data_year % 400 == 0);
+    const size_t REQUIRED_TIME_POINTS = is_leap ? 8784 : 8760; // Leap year: 366 * 24 hours, normal: 365 * 24 hours
     const size_t REQUIRED_MESH_COUNT = MOBAKU_MESH_COUNT;
     
     // Ensure dataset is large enough for the target year

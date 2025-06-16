@@ -35,7 +35,7 @@ typedef struct {
 
 #define H5R_WRITER_DEFAULT_CONFIG { \
     .initial_time_points = 74160, \
-    .chunk_time_size = 8760, \
+    .chunk_time_size = 8784, \
     .chunk_mesh_size = 16, \
     .cache_size_mb = 32, \
     .compression_level = 0 \

@@ -75,9 +75,10 @@ void test_time_series_read(struct h5r *h5_ctx, cmph_t *hash) {
     
     uint32_t mesh_id = 574036191;
     int start_time = 0;
-    int end_time = 17519; // 2 years = 365 * 2 * 24 - 1 hours
+    // Calculate 2 years with leap year consideration: 2016 (leap) + 2017 (non-leap) = 366 + 365 = 731 days
+    int end_time = (366 + 365) * 24 - 1; // 17543 hours for 2016-2017 period
     
-    printf("Reading 2 years of data (17,520 hours) for mesh ID: %u\n", mesh_id);
+    printf("Reading 2 years of data (%d hours) for mesh ID: %u\n", end_time - start_time + 1, mesh_id);
     clock_t start_clock = clock();
     
     int32_t *time_series = h5mobaku_read_population_time_series(h5_ctx, hash, mesh_id, start_time, end_time);
