@@ -18,6 +18,7 @@ typedef struct {
     size_t batch_size;              // Number of rows to process in batch
     int verbose;                    // Enable verbose output
     int create_new;                 // Create new file (1) or append (0)
+    int use_bulk_write;             // Use bulk write mode for year-wise processing
 } csv_to_h5_config_t;
 
 // Default configuration
@@ -26,7 +27,8 @@ typedef struct {
     .dataset_name = "/population_data", \
     .batch_size = 10000, \
     .verbose = 0, \
-    .create_new = 1 \
+    .create_new = 1, \
+    .use_bulk_write = 0 \
 }
 
 // Converter statistics

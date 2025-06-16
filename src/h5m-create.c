@@ -25,6 +25,7 @@ typedef struct {
     int batch_size;
     int verbose;
     int help;
+    int use_bulk_write;
 } h5m_create_config_t;
 
 static void print_usage(const char* prog_name) {
@@ -37,6 +38,7 @@ static void print_usage(const char* prog_name) {
     printf("  -v, --vds-source <file>      Reference dataset for VDS integration\n");
     printf("  -y, --vds-year <year>        Cutoff year for VDS reference (required with --vds-source)\n");
     printf("  -b, --batch-size <size>      Processing batch size (default: 10000)\n");
+    printf("      --bulk-write             Enable year-wise bulk write mode (51 GiB memory)\n");
     printf("      --verbose                Enable verbose output\n");
     printf("  -h, --help                   Show this help message\n");
     
@@ -49,6 +51,9 @@ static void print_usage(const char* prog_name) {
     printf("  \n");
     printf("  With custom pattern and batch size:\n");
     printf("    %s -o output.h5 -d /path/to/csv -p \"data_*.csv\" -b 50000 --verbose\n", prog_name);
+    printf("  \n");
+    printf("  Year-wise bulk processing (requires 51 GiB RAM):\n");
+    printf("    %s -o output.h5 -d /path/to/2024_csv --bulk-write --verbose\n", prog_name);
     
     printf("\nVirtual Dataset (VDS) Integration:\n");
     printf("  When --vds-source and --vds-year are specified, the output file will include\n");
@@ -73,6 +78,7 @@ static int parse_arguments(int argc, char* argv[], h5m_create_config_t* config) 
         {"vds-source",  required_argument, 0, 'v'},
         {"vds-year",    required_argument, 0, 'y'},
         {"batch-size",  required_argument, 0, 'b'},
+        {"bulk-write",  no_argument,       0, 1002},
         {"verbose",     no_argument,       0, 1001},
         {"help",        no_argument,       0, 'h'},
         {0, 0, 0, 0}
@@ -105,6 +111,9 @@ static int parse_arguments(int argc, char* argv[], h5m_create_config_t* config) 
                 break;
             case 1001:
                 config->verbose = 1;
+                break;
+            case 1002:
+                config->use_bulk_write = 1;
                 break;
             case 'h':
                 config->help = 1;
@@ -267,6 +276,7 @@ static int create_vds_integrated_file(const h5m_create_config_t* config,
     csv_config.batch_size = config->batch_size;
     csv_config.verbose = config->verbose;
     csv_config.create_new = 1; // Create new file
+    csv_config.use_bulk_write = config->use_bulk_write;
     
     if (config->verbose) {
         printf("Converting %zu CSV files directly to output file...\n", csv_count);
@@ -476,6 +486,9 @@ int main(int argc, char* argv[]) {
         printf("CSV directory: %s\n", config.csv_directory);
         printf("CSV pattern: %s\n", config.csv_pattern);
         printf("Batch size: %d\n", config.batch_size);
+        if (config.use_bulk_write) {
+            printf("Bulk write mode: ENABLED (requires 51 GiB RAM)\n");
+        }
         if (config.vds_source_file) {
             printf("VDS source: %s (cutoff year: %d)\n", config.vds_source_file, config.vds_cutoff_year);
         }
@@ -536,6 +549,7 @@ int main(int argc, char* argv[]) {
         csv_config.batch_size = config.batch_size;
         csv_config.verbose = config.verbose;
         csv_config.create_new = 1;
+        csv_config.use_bulk_write = config.use_bulk_write;
         
         result = csv_to_h5_convert_files((const char**)all_csv_files, total_file_count, &csv_config, &stats);
     }
