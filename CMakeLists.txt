@@ -1,4 +1,9 @@
 cmake_minimum_required(VERSION 3.26)
+
+# Force use of clang compiler
+set(CMAKE_C_COMPILER clang)
+set(CMAKE_CXX_COMPILER clang++)
+
 project(H5MobakuReader C CXX)
 
 project(H5mobakuReader VERSION 0.1.0 LANGUAGES C CXX)
@@ -20,8 +25,18 @@ if(NOT CMAKE_BUILD_TYPE)
     set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type" FORCE)
 endif()
 
-set(CMAKE_C_FLAGS_DEBUG "-g -O0 -DDEBUG")
-set(CMAKE_C_FLAGS_RELEASE "-O3")
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+
+
+set(CMAKE_C_FLAGS_DEBUG "-g -O0 -DDEBUG -Wall -Wextra")
+set(CMAKE_C_FLAGS_RELEASE "-O3 -march=native")
+set(CMAKE_CXX_FLAGS_DEBUG "-g -O0 -DDEBUG -Wall -Wextra")
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -march=native")
+
+# Copy .env file to build directory if it exists
+if(EXISTS "${CMAKE_SOURCE_DIR}/.env")
+    configure_file("${CMAKE_SOURCE_DIR}/.env" "${CMAKE_BINARY_DIR}/.env" COPYONLY)
+endif()
 
 find_package(HDF5 REQUIRED COMPONENTS C HL)
 

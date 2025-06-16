@@ -11,7 +11,11 @@
 int main()
 {
     /* -------- HDF5 open -------- */
-    const char* filepath = get_env_value("HDF5_FILE_PATH", "/db1/h5/mobaku_base.h5");
+    const char* filepath = get_env_value("HDF5_FILE_PATH", nullptr);
+    if (!filepath) { 
+        std::cerr << "Error: HDF5_FILE_PATH not set in environment or .env file\n"; 
+        return 1; 
+    }
     hid_t f = H5Fopen(filepath, H5F_ACC_RDONLY, H5P_DEFAULT);
     if (f < 0) { std::cerr << "Cannot open file\n"; return 1; }
 

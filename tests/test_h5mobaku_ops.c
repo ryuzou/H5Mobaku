@@ -13,7 +13,12 @@
 
 // Helper function to get test file path
 const char* get_test_file_path() {
-    return get_env_value("HDF5_FILE_PATH", "/db1/h5/mobaku_base.h5");
+    const char* path = get_env_value("HDF5_FILE_PATH", NULL);
+    if (!path) {
+        fprintf(stderr, "Error: HDF5_FILE_PATH not set in environment or .env file\n");
+        exit(1);
+    }
+    return path;
 }
 
 // Helper function to print test results
