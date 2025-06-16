@@ -19,6 +19,8 @@
 #include <time.h>
 #include <hdf5.h>
 #include <errno.h>
+#include <sys/ioctl.h>
+#include <unistd.h>
 
 // Internal structure to track unique timestamps and their indices
 typedef struct {
@@ -71,7 +73,55 @@ typedef struct {
     pthread_mutex_t* stats_mutex;
     converter_ctx_t* ctx;  // Added for processing
     bool verbose;
+    size_t* total_files_processed;  // For progress tracking
+    size_t total_files;             // Total number of files
 } enhanced_csv_reader_thread_data_t;
+
+// Progress bar display function
+static void display_progress(size_t current, size_t total, const char* prefix) {
+    if (!isatty(STDOUT_FILENO)) {
+        // Not a terminal, just print percentage
+        if (current % 100 == 0 || current == total) {
+            printf("%s: %zu/%zu (%.1f%%)\n", prefix, current, total, 
+                   100.0 * current / total);
+        }
+        return;
+    }
+    
+    // Get terminal width
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+    int term_width = w.ws_col > 0 ? w.ws_col : 80;
+    
+    // Calculate progress bar width (leave space for text)
+    int bar_width = term_width - 40;
+    if (bar_width < 20) bar_width = 20;
+    if (bar_width > 100) bar_width = 100;
+    
+    float progress = (float)current / total;
+    int filled = (int)(progress * bar_width);
+    
+    // Print progress bar
+    printf("\r%s: [", prefix);
+    for (int i = 0; i < bar_width; i++) {
+        if (i < filled) {
+            printf("=");
+        } else if (i == filled) {
+            printf(">");
+        } else {
+            printf(" ");
+        }
+    }
+    printf("] %.1f%% (%zu/%zu)", progress * 100, current, total);
+    
+    // Clear to end of line
+    printf("\033[K");
+    
+    if (current == total) {
+        printf("\n");
+    }
+    fflush(stdout);
+}
 
 static int timestamp_compare(const void* a, const void* b) {
     const timestamp_entry_t* ta = (const timestamp_entry_t*)a;
@@ -309,6 +359,7 @@ static int perform_bulk_write(converter_ctx_t* ctx, int verbose) {
     if (verbose) {
         printf("Performing true bulk write of entire buffer (%.2f GiB)...\n", 
                (double)ctx->year_buffer_size / (1024.0 * 1024.0 * 1024.0));
+        display_progress(0, 1, "HDF5 Bulk Write");
     }
     
     // Perform single bulk write operation
@@ -319,6 +370,7 @@ static int perform_bulk_write(converter_ctx_t* ctx, int verbose) {
     }
     
     if (verbose) {
+        display_progress(1, 1, "HDF5 Bulk Write");
         printf("Bulk HDF5 write completed successfully\n");
     }
     
@@ -535,6 +587,7 @@ static void* enhanced_csv_reader_thread_func(void* arg) {
         // Update statistics
         pthread_mutex_lock(data->stats_mutex);
         (*data->rows_processed) += row_count;
+        (*data->total_files_processed)++;
         pthread_mutex_unlock(data->stats_mutex);
         
         // For bulk mode, also update converter statistics since consumer doesn't process
@@ -544,9 +597,12 @@ static void* enhanced_csv_reader_thread_func(void* arg) {
             pthread_mutex_unlock(&data->ctx->stats_mutex);
         }
         
-        if (data->verbose) {
-            printf("Thread %d: Processed %zu rows from %s\n", 
-                   data->thread_id, row_count, filepath);
+        // Update progress display
+        if (data->verbose && data->total_files_processed) {
+            pthread_mutex_lock(data->stats_mutex);
+            size_t files_done = *data->total_files_processed;
+            pthread_mutex_unlock(data->stats_mutex);
+            display_progress(files_done, data->total_files, "CSV Processing");
         }
     }
     
@@ -625,10 +681,11 @@ int csv_to_h5_convert_files(const char** csv_filenames, size_t num_files,
     size_t file_index = 0;
     
     size_t total_rows_read = 0;
+    size_t total_files_processed = 0;
     pthread_mutex_t reader_stats_mutex = PTHREAD_MUTEX_INITIALIZER;
     
     if (local_config.verbose) {
-        printf("Starting %d CSV reader threads\n", num_threads);
+        printf("Starting %d CSV reader threads for %zu files\n", num_threads, num_files);
     }
     
     for (int i = 0; i < num_threads; i++) {
@@ -640,6 +697,8 @@ int csv_to_h5_convert_files(const char** csv_filenames, size_t num_files,
         thread_data[i].stats_mutex = &reader_stats_mutex;
         thread_data[i].ctx = ctx;  // Add converter context
         thread_data[i].verbose = local_config.verbose;
+        thread_data[i].total_files_processed = &total_files_processed;
+        thread_data[i].total_files = num_files;
         
         if (local_config.verbose) {
             printf("  Thread %d: %zu files (indices %zu-%zu)\n", 
@@ -707,9 +766,15 @@ int csv_to_h5_convert_files(const char** csv_filenames, size_t num_files,
     }
     
     if (local_config.verbose) {
+        // Clear any remaining progress display
+        if (isatty(STDOUT_FILENO)) {
+            printf("\r\033[K");
+        }
+        
         pthread_mutex_lock(&ctx->stats_mutex);
         printf("Multi-threaded conversion completed:\n");
         printf("  Total rows processed: %zu\n", ctx->stats.total_rows_processed);
+        printf("  Total files processed: %zu\n", total_files_processed);
         printf("  Unique timestamps: %zu\n", ctx->timestamp_count);
         printf("  Errors: %zu\n", ctx->stats.errors);
         pthread_mutex_unlock(&ctx->stats_mutex);
