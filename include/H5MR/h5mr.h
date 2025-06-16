@@ -46,7 +46,7 @@ int h5r_open_readwrite_with_dataset(const char *path, const char *dataset_name, 
 int h5r_extend_time_dimension(struct h5r *ctx, size_t new_time_points); /* 時間軸拡張 */
 int h5r_write_cell(struct h5r *ctx, uint64_t row, uint64_t col, int32_t value); /* 単一セル書き込み */
 int h5r_write_cells(struct h5r *ctx, uint64_t row, const uint64_t *cols, const int32_t *values, size_t ncols); /* 複数セル書き込み */
-int h5r_write_bulk_buffer(struct h5r *ctx, const int32_t *buffer, size_t time_points, size_t mesh_count); /* バルク書き込み */
+int h5r_write_bulk_buffer(struct h5r *ctx, const int32_t *buffer, size_t time_points, size_t mesh_count, size_t start_time_idx); /* バルク書き込み */
 int h5r_flush(struct h5r *ctx); /* フラッシュ */
 int h5r_get_dimensions(struct h5r *ctx, size_t *time_points, size_t *mesh_count); /* 次元取得 */
 

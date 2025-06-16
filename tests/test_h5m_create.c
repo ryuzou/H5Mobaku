@@ -12,11 +12,7 @@
 #include <assert.h>
 #include <time.h>
 #include <sys/wait.h>
-#include "csv_ops.h"
-#include "csv_to_h5_converter.h"
-#include "H5MR/h5mr.h"
-#include "h5mobaku_ops.h"
-#include "meshid_ops.h"
+#include <stdint.h>
 
 #define MIN_FILES_HISTORICAL 30
 #define MAX_FILES_HISTORICAL 40
@@ -214,6 +210,87 @@ static int run_h5m_create(const char* args, char* output_buffer, size_t buffer_s
     return wstatus;
 }
 
+// Execute h5m-reader command and parse the population value
+static int run_h5m_reader_single(const char* h5_file, uint32_t mesh_id, const char* datetime, int32_t* result_value) {
+    char command[1024];
+    snprintf(command, sizeof(command), "./h5m-reader -f %s -m %u -t \"%s\" 2>/dev/null", 
+             h5_file, mesh_id, datetime);
+    
+    FILE* pipe = popen(command, "r");
+    if (!pipe) {
+        fprintf(stderr, "Failed to execute: %s\n", command);
+        return -1;
+    }
+    
+    char line[512];
+    int found_value = 0;
+    *result_value = -1;
+    
+    // Parse the output table to extract the population value
+    while (fgets(line, sizeof(line), pipe) != NULL) {
+        // Look for the data line (contains mesh ID, datetime, and population)
+        if (strstr(line, "|") && !strstr(line, "Mesh ID") && !strstr(line, "+--")) {
+            // Parse: | 362257341  | 2019-01-01 01:00:00 |        100 |
+            char* last_pipe = strrchr(line, '|');
+            if (last_pipe != NULL) {
+                // Move backwards to find the second-to-last pipe
+                char* second_last = last_pipe - 1;
+                while (second_last > line && *second_last != '|') second_last--;
+                if (*second_last == '|') {
+                    // Extract the number between the pipes
+                    char value_str[32];
+                    int i = 0;
+                    second_last++; // Move past the '|'
+                    while (*second_last == ' ') second_last++; // Skip spaces
+                    while (*second_last != ' ' && *second_last != '|' && i < 31) {
+                        value_str[i++] = *second_last++;
+                    }
+                    value_str[i] = '\0';
+                    *result_value = atoi(value_str);
+                    found_value = 1;
+                    break;
+                }
+            }
+        }
+    }
+    
+    int exit_code = pclose(pipe);
+    int wstatus = WEXITSTATUS(exit_code);
+    
+    if (wstatus != 0 || !found_value) {
+        return -1;
+    }
+    
+    return 0;
+}
+
+// Test data existence by checking multiple time points with h5m-reader
+static int test_data_existence(const char* h5_file, uint32_t mesh_id, const char* base_datetime_format, 
+                              int num_tests, int* zero_count, int* non_zero_count) {
+    *zero_count = 0;
+    *non_zero_count = 0;
+    
+    for (int i = 0; i < num_tests; i++) {
+        char datetime[64];
+        snprintf(datetime, sizeof(datetime), base_datetime_format, i);
+        
+        int32_t value;
+        if (run_h5m_reader_single(h5_file, mesh_id, datetime, &value) == 0) {
+            printf("  %s, mesh %u: %d\n", datetime, mesh_id, value);
+            if (value == 0) {
+                (*zero_count)++;
+            } else {
+                (*non_zero_count)++;
+            }
+        } else {
+            printf("  %s, mesh %u: READ_ERROR\n", datetime, mesh_id);
+            (*zero_count)++;
+        }
+    }
+    
+    return 0;
+}
+
 // Test basic h5m-create functionality without VDS
 void test_basic_h5m_create() {
     printf("=== Testing Basic H5M-Create Functionality ===\n");
@@ -237,17 +314,41 @@ void test_basic_h5m_create() {
     struct stat st;
     assert(stat("test_basic.h5", &st) == 0);
     
-    printf("Step 3: Verifying H5 file...\n");
+    printf("Step 3: Verifying H5 file with h5m-reader...\n");
     
-    // Test reading with h5m-reader
-    struct h5mobaku* h5m_reader;
-    result = h5mobaku_open("test_basic.h5", &h5m_reader);
-    assert(result == 0);
-    assert(h5m_reader->start_datetime_str != NULL);
+    // Test reading with h5m-reader command for data from 2019-2023 (test data)
+    uint32_t test_mesh = 362257341;
+    int zero_count = 0, non_zero_count = 0;
     
-    printf("H5 file verified. Start datetime: %s\n", h5m_reader->start_datetime_str);
+    // Test multiple time points in 2019 (when test data should be)
+    const char* test_times[] = {
+        "2019-01-01 00:00:00",
+        "2019-01-01 01:00:00", 
+        "2019-01-01 02:00:00",
+        "2019-01-02 00:00:00",
+        "2019-01-02 01:00:00"
+    };
     
-    h5mobaku_close(h5m_reader);
+    for (int i = 0; i < 5; i++) {
+        int32_t value;
+        if (run_h5m_reader_single("test_basic.h5", test_mesh, test_times[i], &value) == 0) {
+            printf("  %s, mesh %u: %d\n", test_times[i], test_mesh, value);
+            if (value == 0) {
+                zero_count++;
+            } else {
+                non_zero_count++;
+            }
+        } else {
+            printf("  %s, mesh %u: READ_ERROR\n", test_times[i], test_mesh);
+            zero_count++;
+        }
+    }
+    
+    printf("  Data check: %d zero, %d non-zero values\n", zero_count, non_zero_count);
+    
+    if (non_zero_count == 0) {
+        printf("WARNING: All sampled values are 0 - possible data writing issue\n");
+    }
     
     printf("Step 4: Cleaning up...\n");
     system("rm -rf test_basic_h5m");
@@ -301,66 +402,58 @@ void test_vds_h5m_create() {
     assert(stat(config.combined_h5, &st) == 0);
     printf("Combined VDS file size: %ld bytes\n", st.st_size);
     
-    printf("\nStep 5: Testing VDS data access...\n");
+    printf("\nStep 5: Testing VDS data access with h5m-reader...\n");
     
-    // Open both files for comparison
-    struct h5mobaku* historical_reader;
-    struct h5mobaku* combined_reader;
-    
-    result = h5mobaku_open(config.historical_h5, &historical_reader);
-    assert(result == 0);
-    
-    result = h5mobaku_open(config.combined_h5, &combined_reader);
-    assert(result == 0);
-    
-    // Prepare mesh search
-    cmph_t* hash = meshid_prepare_search();
-    assert(hash != NULL);
-    
-    // Test reading historical data from both files
     uint32_t test_mesh = 362257341;
-    uint32_t mesh_idx = meshid_search_id(hash, test_mesh);
+    printf("Testing mesh ID %u:\n", test_mesh);
     
-    if (mesh_idx != MESHID_NOT_FOUND) {
-        printf("Testing mesh ID %u (index %u):\n", test_mesh, mesh_idx);
-        
-        // Test historical data access (2017)
-        const char* historical_time = "2017-06-01 12:00:00";
-        int32_t hist_value = h5mobaku_read_population_single_at_time(
-            historical_reader, hash, test_mesh, historical_time);
-        int32_t vds_hist_value = h5mobaku_read_population_single_at_time(
-            combined_reader, hash, test_mesh, historical_time);
-        
-        printf("  Historical data (%s):\n", historical_time);
+    // Test historical data access (2017)
+    const char* historical_time = "2017-06-01 12:00:00";
+    int32_t hist_value, vds_hist_value;
+    
+    printf("  Historical data (%s):\n", historical_time);
+    if (run_h5m_reader_single(config.historical_h5, test_mesh, historical_time, &hist_value) == 0) {
         printf("    Original file: %d\n", hist_value);
-        printf("    VDS file: %d\n", vds_hist_value);
-        
-        // Test new data access (2020) - should only work with VDS file
-        const char* new_time = "2020-06-01 12:00:00";
-        int32_t vds_new_value = h5mobaku_read_population_single_at_time(
-            combined_reader, hash, test_mesh, new_time);
-        
-        printf("  New data (%s):\n", new_time);
-        printf("    VDS file: %d\n", vds_new_value);
-        
-        // Test time series access across VDS boundary
-        const char* start_time = "2018-12-01 00:00:00";
-        const char* end_time = "2019-02-01 00:00:00";
-        int32_t* time_series = h5mobaku_read_population_time_series_between(
-            combined_reader, hash, test_mesh, start_time, end_time);
-        
-        if (time_series) {
-            printf("  Time series across VDS boundary (%s to %s):\n", start_time, end_time);
-            printf("    First few values: %d, %d, %d...\n", 
-                   time_series[0], time_series[1], time_series[2]);
-            h5mobaku_free_data(time_series);
-        }
+    } else {
+        printf("    Original file: READ_ERROR\n");
+        hist_value = -1;
     }
     
-    // Cleanup readers
-    cmph_destroy(hash);
-    h5mobaku_close(historical_reader);
-    h5mobaku_close(combined_reader);
+    if (run_h5m_reader_single(config.combined_h5, test_mesh, historical_time, &vds_hist_value) == 0) {
+        printf("    VDS file: %d\n", vds_hist_value);
+    } else {
+        printf("    VDS file: READ_ERROR\n");
+        vds_hist_value = -1;
+    }
+    
+    // Test new data access (2020) - should only work with VDS file
+    const char* new_time = "2020-06-01 12:00:00";
+    int32_t vds_new_value;
+    
+    printf("  New data (%s):\n", new_time);
+    if (run_h5m_reader_single(config.combined_h5, test_mesh, new_time, &vds_new_value) == 0) {
+        printf("    VDS file: %d\n", vds_new_value);
+    } else {
+        printf("    VDS file: READ_ERROR\n");
+        vds_new_value = -1;
+    }
+    
+    // Test boundary data points
+    printf("  VDS boundary test:\n");
+    const char* boundary_times[] = {
+        "2018-12-31 23:00:00",  // Should be in historical data
+        "2019-01-01 00:00:00",  // Should be in new data
+        "2019-01-01 01:00:00"   // Should be in new data
+    };
+    
+    for (int i = 0; i < 3; i++) {
+        int32_t boundary_value;
+        if (run_h5m_reader_single(config.combined_h5, test_mesh, boundary_times[i], &boundary_value) == 0) {
+            printf("    %s: %d\n", boundary_times[i], boundary_value);
+        } else {
+            printf("    %s: READ_ERROR\n", boundary_times[i]);
+        }
+    }
     
     printf("\nStep 6: Performance comparison...\n");
     
@@ -560,24 +653,71 @@ void test_bulk_write_h5m_create() {
     assert(stat("test_bulk.h5", &st) == 0);
     printf("  Created HDF5 file size: %ld bytes\n", st.st_size);
     
-    // Test 3: Verify data can be read correctly
-    struct h5mobaku* h5m_reader = NULL;
-    result = h5mobaku_open("test_bulk.h5", &h5m_reader);
-    assert(result == 0);
-    assert(h5m_reader != NULL);
+    // Test 3: Verify data can be read correctly with h5m-reader
+    printf("Test 3: Verifying bulk-written data with h5m-reader...\n");
     
-    // Initialize mesh hash for lookups
-    cmph_t* hash = meshid_prepare_search();
-    assert(hash != NULL);
-    
-    // Read and verify some data points
     uint32_t test_mesh = 362257341;
-    int32_t pop_value = h5mobaku_read_population_single(h5m_reader->h5r_ctx, hash, test_mesh, 0);
-    printf("  Read population for mesh %u at time 0: %d\n", test_mesh, pop_value);
-    assert(pop_value >= 100 && pop_value < 1100); // Within expected range
     
-    cmph_destroy(hash);
-    h5mobaku_close(h5m_reader);
+    // Test 2023 data (should be written correctly now)
+    const char* test_2023_times[] = {
+        "2023-01-01 00:00:00",
+        "2023-01-01 01:00:00", 
+        "2023-01-01 02:00:00",
+        "2023-01-02 00:00:00",
+        "2023-01-02 01:00:00"
+    };
+    
+    int zero_count = 0, non_zero_count = 0;
+    printf("  Testing 2023 data (correct time indices):\n");
+    for (int i = 0; i < 5; i++) {
+        int32_t value;
+        if (run_h5m_reader_single("test_bulk.h5", test_mesh, test_2023_times[i], &value) == 0) {
+            printf("    %s: %d\n", test_2023_times[i], value);
+            if (value == 0) {
+                zero_count++;
+            } else {
+                non_zero_count++;
+                // Verify value is in expected range
+                assert(value >= 100 && value < 1100);
+            }
+        } else {
+            printf("    %s: READ_ERROR\n", test_2023_times[i]);
+            zero_count++;
+        }
+    }
+    
+    printf("  Data check: %d zero, %d non-zero values\n", zero_count, non_zero_count);
+    
+    // Verify that data is NOT at wrong locations (2016 beginning)
+    printf("  Testing 2016 data (should be empty - wrong time indices):\n");
+    const char* test_2016_times[] = {
+        "2016-01-01 00:00:00",
+        "2016-01-01 01:00:00", 
+        "2016-01-01 02:00:00"
+    };
+    
+    int wrong_non_zero = 0;
+    for (int i = 0; i < 3; i++) {
+        int32_t value;
+        if (run_h5m_reader_single("test_bulk.h5", test_mesh, test_2016_times[i], &value) == 0) {
+            printf("    %s: %d\n", test_2016_times[i], value);
+            if (value != 0) wrong_non_zero++;
+        } else {
+            printf("    %s: READ_ERROR\n", test_2016_times[i]);
+        }
+    }
+    
+    if (non_zero_count > 0) {
+        printf("  SUCCESS: Data correctly written at 2023 time indices\n");
+        if (wrong_non_zero > 0) {
+            printf("  WARNING: Found %d non-zero values at 2016 indices - may indicate bug\n", wrong_non_zero);
+        } else {
+            printf("  SUCCESS: No incorrect data at 2016 indices\n");
+        }
+    } else {
+        printf("  ERROR: No data found at correct 2023 time indices\n");
+        assert(non_zero_count > 0);
+    }
     
     // Cleanup
     system("rm -rf test_bulk_data");

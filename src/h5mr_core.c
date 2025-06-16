@@ -570,12 +570,13 @@ int h5r_write_cells(struct h5r *ctx, uint64_t row, const uint64_t *cols, const i
     return (status < 0) ? -1 : 0;
 }
 
-int h5r_write_bulk_buffer(struct h5r *ctx, const int32_t *buffer, size_t time_points, size_t mesh_count) {
+int h5r_write_bulk_buffer(struct h5r *ctx, const int32_t *buffer, size_t time_points, size_t mesh_count, size_t start_time_idx) {
     if (!ctx || !ctx->is_writable || !buffer) return -1;
     
-    // Extend dataset if necessary
-    if (time_points > ctx->rows) {
-        if (h5r_extend_time_dimension(ctx, time_points) < 0) {
+    // Extend dataset if necessary to accommodate the write at start_time_idx
+    size_t needed_time_points = start_time_idx + time_points;
+    if (needed_time_points > ctx->rows) {
+        if (h5r_extend_time_dimension(ctx, needed_time_points) < 0) {
             return -1;
         }
     }
@@ -587,8 +588,8 @@ int h5r_write_bulk_buffer(struct h5r *ctx, const int32_t *buffer, size_t time_po
         return -1;
     }
     
-    // Select hyperslab in file dataspace
-    hsize_t start[2] = {0, 0};
+    // Select hyperslab in file dataspace starting at the correct time index
+    hsize_t start[2] = {start_time_idx, 0};
     hsize_t count[2] = {time_points, mesh_count};
     
     herr_t status = H5Sselect_hyperslab(ctx->dataspace_id, H5S_SELECT_SET, 

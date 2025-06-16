@@ -206,10 +206,10 @@ void test_csv_conversion() {
     assert(fp != NULL);
     
     fprintf(fp, "date,time,area,residence,age,gender,population\n");
-    fprintf(fp, "20240101,0100,362257341,-1,-1,-1,100\n");
-    fprintf(fp, "20240101,0100,362257342,-1,-1,-1,200\n");
-    fprintf(fp, "20240101,0200,362257341,-1,-1,-1,150\n");
-    fprintf(fp, "20240101,0200,362257342,-1,-1,-1,250\n");
+    fprintf(fp, "20160101,0100,362257341,-1,-1,-1,100\n");
+    fprintf(fp, "20160101,0100,362257342,-1,-1,-1,200\n");
+    fprintf(fp, "20160101,0200,362257341,-1,-1,-1,150\n");
+    fprintf(fp, "20160101,0200,362257342,-1,-1,-1,250\n");
     fclose(fp);
     
     csv_to_h5_config_t config = CSV_TO_H5_DEFAULT_CONFIG;
@@ -248,25 +248,37 @@ void test_csv_conversion() {
     int32_t value;
     uint32_t mesh_idx;
     
+    // Check dataset dimensions first
+    size_t time_points, mesh_count;
+    h5r_get_dimensions(reader, &time_points, &mesh_count);
+    printf("DEBUG: Dataset dimensions: %zu time points, %zu mesh count\n", time_points, mesh_count);
+    
     mesh_idx = meshid_search_id(hash, 362257341);
+    printf("DEBUG: Mesh ID 362257341 -> index %u\n", mesh_idx);
     assert(mesh_idx != MESHID_NOT_FOUND);
-    result = h5r_read_cell(reader, 0, mesh_idx, &value);
+    
+    // 20160101,0100 -> time index 1 (01:00 is 1 hour from 00:00)
+    result = h5r_read_cell(reader, 1, mesh_idx, &value);
     assert(result == 0);
+    printf("DEBUG: Read from time 1, mesh index %u: got value %d (expected 100)\n", mesh_idx, value);
     assert(value == 100);
     
     mesh_idx = meshid_search_id(hash, 362257342);
     assert(mesh_idx != MESHID_NOT_FOUND);
-    result = h5r_read_cell(reader, 0, mesh_idx, &value);
+    // 20160101,0100 -> time index 1
+    result = h5r_read_cell(reader, 1, mesh_idx, &value);
     assert(result == 0);
     assert(value == 200);
     
     mesh_idx = meshid_search_id(hash, 362257341);
-    result = h5r_read_cell(reader, 1, mesh_idx, &value);
+    // 20160101,0200 -> time index 2 (02:00 is 2 hours from 00:00)
+    result = h5r_read_cell(reader, 2, mesh_idx, &value);
     assert(result == 0);
     assert(value == 150);
     
     mesh_idx = meshid_search_id(hash, 362257342);
-    result = h5r_read_cell(reader, 1, mesh_idx, &value);
+    // 20160101,0200 -> time index 2
+    result = h5r_read_cell(reader, 2, mesh_idx, &value);
     assert(result == 0);
     assert(value == 250);
     
@@ -287,7 +299,7 @@ void test_append_mode() {
     assert(fp != NULL);
     
     fprintf(fp, "date,time,area,residence,age,gender,population\n");
-    fprintf(fp, "20240101,0100,362257341,-1,-1,-1,100\n");
+    fprintf(fp, "20160101,0100,362257341,-1,-1,-1,100\n");
     fclose(fp);
     
     // Create second CSV file
@@ -296,7 +308,7 @@ void test_append_mode() {
     assert(fp != NULL);
     
     fprintf(fp, "date,time,area,residence,age,gender,population\n");
-    fprintf(fp, "20240101,0200,362257341,-1,-1,-1,200\n");
+    fprintf(fp, "20160101,0200,362257341,-1,-1,-1,200\n");
     fclose(fp);
     
     // Convert both files together
@@ -323,14 +335,16 @@ void test_append_mode() {
     uint32_t mesh_idx = meshid_search_id(hash, 362257341);
     assert(mesh_idx != MESHID_NOT_FOUND);
     
-    // Check first timestamp
-    result = h5r_read_cell(reader, 0, mesh_idx, &value);
-    assert(result == 0);
-    assert(value == 100);
-    
-    // Check second timestamp
+    // Check first timestamp (20160101,0100 -> time index 1)
     result = h5r_read_cell(reader, 1, mesh_idx, &value);
     assert(result == 0);
+    printf("DEBUG: Read from time 1, mesh index %u: got value %d (expected 100)\n", mesh_idx, value);
+    assert(value == 100);
+    
+    // Check second timestamp (20160101,0200 -> time index 2)
+    result = h5r_read_cell(reader, 2, mesh_idx, &value);
+    assert(result == 0);
+    printf("DEBUG: Read from time 2, mesh index %u: got value %d (expected 200)\n", mesh_idx, value);
     assert(value == 200);
     
     h5r_close(reader);
@@ -394,12 +408,13 @@ void test_write_to_sparse_regions() {
     cmph_t* hash = meshid_prepare_search();
     uint32_t mesh_idx = meshid_search_id(hash, 362257341);
     
-    // Check that all values are stored
+    // Check the actual time indices where data was written (1, 2, 3 for 01:00, 02:00, 03:00)
     int32_t values[3];
+    int time_indices[] = {1, 2, 3};  // 01:00, 02:00, 03:00
     for (int i = 0; i < 3; i++) {
-        result = h5r_read_cell(reader, i, mesh_idx, &values[i]);
+        result = h5r_read_cell(reader, time_indices[i], mesh_idx, &values[i]);
         assert(result == 0);
-        printf("  Time index %d: value = %d\n", i, values[i]);
+        printf("  Time index %d: value = %d\n", time_indices[i], values[i]);
     }
     
     // Verify we have all three values (100, 150, 300 in some order)
@@ -429,6 +444,7 @@ void test_write_to_sparse_regions() {
 }
 
 int main() {
+    printf("Starting CSV to H5 tests...\n");
     test_csv_conversion();
     test_append_mode();
     test_write_to_sparse_regions();

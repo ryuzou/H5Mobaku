@@ -45,6 +45,7 @@ typedef struct {
     int32_t* year_buffer;
     size_t year_buffer_size;
     bool use_bulk_write;
+    int bulk_write_year;  // Year of data for bulk mode
 } converter_ctx_t;
 
 // Pre-processed write data structure (sent from producer to consumer)
@@ -338,6 +339,31 @@ static int perform_bulk_write(converter_ctx_t* ctx, int verbose) {
                (double)ctx->year_buffer_size / (1024.0 * 1024.0 * 1024.0));
     }
     
+    // Calculate the start time index based on the year of data
+    // Bulk mode assumes a single year of data, so we need to determine which year
+    // For now, we'll need to pass this information or detect it from the data
+    // TODO: This needs to be properly tracked during data loading
+    int data_year = ctx->bulk_write_year; // Need to add this field to track the year
+    
+    // Calculate hours since 2016-01-01 00:00:00 for the start of data_year
+    struct tm base_tm = {0};
+    base_tm.tm_year = 2016 - 1900;
+    base_tm.tm_mon = 0;
+    base_tm.tm_mday = 1;
+    
+    struct tm year_tm = {0};
+    year_tm.tm_year = data_year - 1900;
+    year_tm.tm_mon = 0;
+    year_tm.tm_mday = 1;
+    
+    time_t base_time = mktime(&base_tm);
+    time_t year_time = mktime(&year_tm);
+    size_t start_time_idx = (year_time - base_time) / 3600;
+    
+    if (verbose) {
+        printf("Bulk write year: %d, start time index: %zu\n", data_year, start_time_idx);
+    }
+    
     // First ensure HDF5 dataset has correct dimensions
     size_t current_time_points, mesh_count;
     h5r_get_dimensions(ctx->writer->h5r_ctx, &current_time_points, &mesh_count);
@@ -345,11 +371,13 @@ static int perform_bulk_write(converter_ctx_t* ctx, int verbose) {
     const size_t REQUIRED_TIME_POINTS = HDF5_DATETIME_CHUNK; // Standard year: 365 days * 24 hours
     const size_t REQUIRED_MESH_COUNT = MOBAKU_MESH_COUNT;
     
-    if (current_time_points < REQUIRED_TIME_POINTS) {
+    // Ensure dataset is large enough for the target year
+    size_t needed_time_points = start_time_idx + REQUIRED_TIME_POINTS;
+    if (current_time_points < needed_time_points) {
         if (verbose) {
-            printf("Extending HDF5 dataset to %zu time points...\n", REQUIRED_TIME_POINTS);
+            printf("Extending HDF5 dataset to %zu time points...\n", needed_time_points);
         }
-        if (h5mobaku_extend_time_dimension(ctx->writer, REQUIRED_TIME_POINTS) < 0) {
+        if (h5mobaku_extend_time_dimension(ctx->writer, needed_time_points) < 0) {
             fprintf(stderr, "Error: Failed to extend HDF5 dataset for bulk write\n");
             return -1;
         }
@@ -362,9 +390,9 @@ static int perform_bulk_write(converter_ctx_t* ctx, int verbose) {
         display_progress(0, 1, "HDF5 Bulk Write");
     }
     
-    // Perform single bulk write operation
+    // Perform single bulk write operation at the correct time index
     if (h5r_write_bulk_buffer(ctx->writer->h5r_ctx, ctx->year_buffer, 
-                              REQUIRED_TIME_POINTS, REQUIRED_MESH_COUNT) < 0) {
+                              REQUIRED_TIME_POINTS, REQUIRED_MESH_COUNT, start_time_idx) < 0) {
         fprintf(stderr, "Error: Bulk buffer write failed\n");
         return -1;
     }
@@ -441,6 +469,7 @@ static void* h5_consumer_thread_func(void* arg) {
                 }
             }
             
+            
             // Write single cell to HDF5
             if (h5r_write_cell(data->ctx->writer->h5r_ctx, write_data->time_index, write_data->mesh_index, write_data->population) < 0) {
                 pthread_mutex_lock(&data->ctx->stats_mutex);
@@ -515,6 +544,11 @@ static void* enhanced_csv_reader_thread_func(void* arg) {
                 int day = row.date % 100;
                 int hour = row.time / 100;
                 
+                // Track the year for bulk write (assume all data is from same year)
+                if (data->ctx->bulk_write_year == 0) {
+                    data->ctx->bulk_write_year = year;
+                }
+                
                 // Calculate day of year (0-based)
                 int days_in_month[] = {31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
                 bool is_leap = (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0);
@@ -539,16 +573,43 @@ static void* enhanced_csv_reader_thread_func(void* arg) {
                 
                 write_data->use_bulk_mode = true;
             } else {
-                // Incremental mode: use timestamp index
-                time_idx = find_or_add_timestamp(data->ctx, row.date, row.time);
-                if (time_idx == (size_t)-1) {
+                // Incremental mode: calculate time index based on 2016-01-01 00:00:00
+                int year = row.date / 10000;
+                int month = (row.date / 100) % 100;
+                int day = row.date % 100;
+                int hour = row.time / 100;
+                int minute = row.time % 100;
+                
+                // Calculate hours since 2016-01-01 00:00:00
+                struct tm base_tm = {0};
+                base_tm.tm_year = 2016 - 1900;
+                base_tm.tm_mon = 0;
+                base_tm.tm_mday = 1;
+                
+                struct tm curr_tm = {0};
+                curr_tm.tm_year = year - 1900;
+                curr_tm.tm_mon = month - 1;
+                curr_tm.tm_mday = day;
+                curr_tm.tm_hour = hour;
+                curr_tm.tm_min = minute;
+                
+                time_t base_time = mktime(&base_tm);
+                time_t curr_time = mktime(&curr_tm);
+                
+                if (base_time == -1 || curr_time == -1) {
                     if (data->verbose) {
-                        fprintf(stderr, "Thread %d: Failed to process timestamp for %u %u\n", 
+                        fprintf(stderr, "Thread %d: Failed to calculate time for %u %u\n", 
                                data->thread_id, row.date, row.time);
                     }
                     free(write_data);
                     continue;
                 }
+                
+                // Calculate time index (hours since base)
+                time_idx = (size_t)((curr_time - base_time) / 3600);
+                
+                // Also track this timestamp for statistics
+                find_or_add_timestamp(data->ctx, row.date, row.time);
                 
                 write_data->use_bulk_mode = false;
             }
