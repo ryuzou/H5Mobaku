@@ -264,6 +264,18 @@ static int run_h5m_reader_single(const char* h5_file, uint32_t mesh_id, const ch
     return 0;
 }
 
+// Create a CSV file with specific known values for VDS verification
+static void create_test_csv_with_known_values(const char* filename, int year, int month, 
+                                             uint32_t mesh_id, int population) {
+    FILE* fp = fopen(filename, "w");
+    assert(fp != NULL);
+    
+    fprintf(fp, "date,time,area,residence,age,gender,population\n");
+    fprintf(fp, "%04d%02d01,1200,%u,-1,-1,-1,%d\n", year, month, mesh_id, population);
+    
+    fclose(fp);
+}
+
 // Test data existence by checking multiple time points with h5m-reader
 static int test_data_existence(const char* h5_file, uint32_t mesh_id, const char* base_datetime_format, 
                               int num_tests, int* zero_count, int* non_zero_count) {
@@ -426,6 +438,15 @@ void test_vds_h5m_create() {
         vds_hist_value = -1;
     }
     
+    // Verify VDS returns same value as original for historical data
+    if (hist_value != -1 && vds_hist_value != -1) {
+        assert(hist_value == vds_hist_value);
+        if (hist_value != 0) {
+            assert(hist_value >= 100 && hist_value <= 499); // Historical range check
+        }
+        printf("    ✓ VDS correctly returns historical data\n");
+    }
+    
     // Test new data access (2020) - should only work with VDS file
     const char* new_time = "2020-06-01 12:00:00";
     int32_t vds_new_value;
@@ -433,6 +454,13 @@ void test_vds_h5m_create() {
     printf("  New data (%s):\n", new_time);
     if (run_h5m_reader_single(config.combined_h5, test_mesh, new_time, &vds_new_value) == 0) {
         printf("    VDS file: %d\n", vds_new_value);
+        // Verify new data is in expected range (200-799) or 0 if no data for that exact time
+        if (vds_new_value == 0) {
+            printf("    Note: Value is 0 (no data for exact time/mesh combination)\n");
+        } else {
+            assert(vds_new_value >= 200 && vds_new_value <= 799);
+            printf("    ✓ VDS correctly returns new data in expected range\n");
+        }
     } else {
         printf("    VDS file: READ_ERROR\n");
         vds_new_value = -1;
@@ -446,13 +474,30 @@ void test_vds_h5m_create() {
         "2019-01-01 01:00:00"   // Should be in new data
     };
     
+    int32_t boundary_values[3];
+    int boundary_success = 1;
+    
     for (int i = 0; i < 3; i++) {
-        int32_t boundary_value;
-        if (run_h5m_reader_single(config.combined_h5, test_mesh, boundary_times[i], &boundary_value) == 0) {
-            printf("    %s: %d\n", boundary_times[i], boundary_value);
+        if (run_h5m_reader_single(config.combined_h5, test_mesh, boundary_times[i], &boundary_values[i]) == 0) {
+            printf("    %s: %d\n", boundary_times[i], boundary_values[i]);
         } else {
             printf("    %s: READ_ERROR\n", boundary_times[i]);
+            boundary_success = 0;
         }
+    }
+    
+    if (boundary_success) {
+        // Verify boundary values are in correct ranges (0 means no data for that time/mesh)
+        if (boundary_values[0] != 0) {
+            assert(boundary_values[0] >= 100 && boundary_values[0] <= 499); // Historical range
+        }
+        if (boundary_values[1] != 0) {
+            assert(boundary_values[1] >= 200 && boundary_values[1] <= 799); // New data range
+        }
+        if (boundary_values[2] != 0) {
+            assert(boundary_values[2] >= 200 && boundary_values[2] <= 799); // New data range
+        }
+        printf("    ✓ VDS correctly handles boundary between historical and new data\n");
     }
     
     printf("\nStep 6: Performance comparison...\n");
@@ -474,6 +519,80 @@ void test_vds_h5m_create() {
     unlink(config.combined_h5);
     
     printf("VDS H5M-Create test passed!\n\n");
+}
+
+// Test VDS with specific known values
+void test_vds_known_values() {
+    printf("=== Testing VDS with Known Values ===\n");
+    
+    const char* test_dir = "test_vds_known";
+    const char* historical_h5 = "test_known_historical.h5";
+    const char* vds_h5 = "test_known_vds.h5";
+    
+    mkdir(test_dir, 0755);
+    
+    // Create historical data with known values
+    printf("Step 1: Creating historical data with specific values...\n");
+    uint32_t test_mesh = 533946395;
+    create_test_csv_with_known_values("test_vds_known/hist_2017.csv", 2017, 6, test_mesh, 123);
+    create_test_csv_with_known_values("test_vds_known/hist_2018.csv", 2018, 12, test_mesh, 456);
+    
+    // Create historical H5 file
+    char output[65536];
+    char args[512];
+    snprintf(args, sizeof(args), "-o %s -d %s", historical_h5, test_dir);
+    int result = run_h5m_create(args, output, sizeof(output));
+    assert(result == 0);
+    
+    // Create new data with known values
+    printf("Step 2: Creating new data with specific values...\n");
+    create_test_csv_with_known_values("test_vds_known/new_2020.csv", 2020, 3, test_mesh, 789);
+    create_test_csv_with_known_values("test_vds_known/new_2022.csv", 2022, 9, test_mesh, 999);
+    
+    // Create VDS file
+    printf("Step 3: Creating VDS file...\n");
+    snprintf(args, sizeof(args), "-o %s -d %s -v %s -y 2019", vds_h5, test_dir, historical_h5);
+    result = run_h5m_create(args, output, sizeof(output));
+    assert(result == 0);
+    
+    printf("Step 4: Verifying known values through VDS...\n");
+    int32_t value;
+    
+    // Test historical values
+    result = run_h5m_reader_single(vds_h5, test_mesh, "2017-06-01 12:00:00", &value);
+    assert(result == 0);
+    assert(value == 123);
+    printf("  ✓ 2017-06-01: Expected 123, got %d\n", value);
+    
+    result = run_h5m_reader_single(vds_h5, test_mesh, "2018-12-01 12:00:00", &value);
+    assert(result == 0);
+    assert(value == 456);
+    printf("  ✓ 2018-12-01: Expected 456, got %d\n", value);
+    
+    // Test new values
+    result = run_h5m_reader_single(vds_h5, test_mesh, "2020-03-01 12:00:00", &value);
+    assert(result == 0);
+    assert(value == 789);
+    printf("  ✓ 2020-03-01: Expected 789, got %d\n", value);
+    
+    result = run_h5m_reader_single(vds_h5, test_mesh, "2022-09-01 12:00:00", &value);
+    assert(result == 0);
+    assert(value == 999);
+    printf("  ✓ 2022-09-01: Expected 999, got %d\n", value);
+    
+    // Test non-existent time (should return 0)
+    result = run_h5m_reader_single(vds_h5, test_mesh, "2019-06-01 12:00:00", &value);
+    assert(result == 0);
+    assert(value == 0);
+    printf("  ✓ 2019-06-01: Expected 0 (no data), got %d\n", value);
+    
+    // Cleanup
+    printf("Step 5: Cleaning up...\n");
+    system("rm -rf test_vds_known");
+    unlink(historical_h5);
+    unlink(vds_h5);
+    
+    printf("VDS Known Values test passed!\n\n");
 }
 
 // Test error conditions and edge cases
@@ -735,6 +854,9 @@ int main() {
     // Test VDS functionality
     test_vds_h5m_create();
     
+    // Test VDS with known values
+    test_vds_known_values();
+    
     // Test error conditions
     test_h5m_create_error_cases();
     
@@ -749,6 +871,7 @@ int main() {
     printf("\nTest Summary:\n");
     printf("✓ Basic CSV to H5 conversion\n");
     printf("✓ VDS integration with historical data\n");
+    printf("✓ VDS value verification with known data\n");
     printf("✓ Self-reference for new data within same file\n");
     printf("✓ Error handling and validation\n");
     printf("✓ Large-scale performance\n");

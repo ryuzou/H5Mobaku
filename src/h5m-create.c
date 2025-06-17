@@ -11,6 +11,7 @@
 #include <sys/stat.h>
 #include <dirent.h>
 #include <unistd.h>
+#include <ctype.h>
 #include <hdf5.h>
 #include "csv_to_h5_converter.h"
 #include "csv_ops.h"
@@ -58,9 +59,9 @@ static void print_usage(const char* prog_name) {
     printf("\nVirtual Dataset (VDS) Integration:\n");
     printf("  When --vds-source and --vds-year are specified, the output file will include\n");
     printf("  a virtual dataset that references data from the source file for all time\n");
-    printf("  points before the specified year. New CSV data will be appended after the\n");
-    printf("  VDS reference, creating a seamless time series that combines historical\n");
-    printf("  and new data without duplicating the historical data.\n");
+    printf("  points before the specified year. All CSV data will be processed and written\n");
+    printf("  to a new dataset. The VDS will create a seamless view that combines historical\n");
+    printf("  data (before the cutoff year) from the source file with new data from the CSV files.\n");
 }
 
 static int parse_arguments(int argc, char* argv[], h5m_create_config_t* config) {
@@ -212,41 +213,7 @@ static int get_vds_time_dimensions(const char* vds_file, hsize_t* time_dim, hsiz
     return 0;
 }
 
-static int filter_csv_files_by_year(char** all_files, size_t total_count, 
-                                   char*** filtered_files, size_t* filtered_count,
-                                   int cutoff_year) {
-    *filtered_files = malloc(total_count * sizeof(char*));
-    if (!*filtered_files) return -1;
-    
-    *filtered_count = 0;
-    
-    // For each CSV file, check if it contains data from cutoff_year or later
-    for (size_t i = 0; i < total_count; i++) {
-        csv_reader_t* reader = csv_open(all_files[i]);
-        if (!reader) continue;
-        
-        csv_row_t row;
-        int has_recent_data = 0;
-        
-        // Check first few rows to determine if file has data >= cutoff_year
-        for (int j = 0; j < 10 && csv_read_row(reader, &row) == 0; j++) {
-            int year = row.date / 10000;
-            if (year >= cutoff_year) {
-                has_recent_data = 1;
-                break;
-            }
-        }
-        
-        csv_close(reader);
-        
-        if (has_recent_data) {
-            (*filtered_files)[*filtered_count] = strdup(all_files[i]);
-            (*filtered_count)++;
-        }
-    }
-    
-    return 0;
-}
+// Removed filter_csv_files_by_year function - VDS mode now processes all files
 
 static int create_vds_integrated_file(const h5m_create_config_t* config, 
                                      char** csv_files, size_t csv_count,
@@ -516,33 +483,14 @@ int main(int argc, char* argv[]) {
     csv_to_h5_stats_t stats;
     
     if (config.vds_source_file) {
-        // Filter CSV files to only include data from cutoff year or later
-        char** filtered_files;
-        size_t filtered_count;
-        
-        if (filter_csv_files_by_year(all_csv_files, total_file_count, 
-                                   &filtered_files, &filtered_count, 
-                                   config.vds_cutoff_year) < 0) {
-            fprintf(stderr, "Error: Failed to filter CSV files by year\n");
-            for (size_t i = 0; i < total_file_count; i++) {
-                free(all_csv_files[i]);
-            }
-            free(all_csv_files);
-            free_config(&config);
-            return 1;
-        }
-        
+        // VDS mode: process all files (same as non-VDS mode)
+        // The -y option only controls where the VDS joins historical and new data
         if (config.verbose) {
-            printf("Filtered to %zu CSV files with data >= %d\n", filtered_count, config.vds_cutoff_year);
+            printf("VDS mode: processing all %zu CSV files\n", total_file_count);
+            printf("VDS will join historical data (up to year %d) with new data\n", config.vds_cutoff_year);
         }
         
-        result = create_vds_integrated_file(&config, filtered_files, filtered_count, &stats);
-        
-        // Cleanup filtered files
-        for (size_t i = 0; i < filtered_count; i++) {
-            free(filtered_files[i]);
-        }
-        free(filtered_files);
+        result = create_vds_integrated_file(&config, all_csv_files, total_file_count, &stats);
     } else {
         // Standard conversion without VDS
         csv_to_h5_config_t csv_config = CSV_TO_H5_DEFAULT_CONFIG;

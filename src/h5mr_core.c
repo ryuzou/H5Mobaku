@@ -152,16 +152,30 @@ int h5r_open(const char *path, struct h5r **out)
 
     /* Get chunk dimensions */
     hid_t dcpl = H5Dget_create_plist(ctx->dset);
-    int ndims = H5Pget_chunk(dcpl, 2, dims);
-    if (ndims > 0) {
-        ctx->crows = dims[0];
-        ctx->ccols = dims[1];
+    if (dcpl >= 0) {
+        H5D_layout_t layout = H5Pget_layout(dcpl);
+        
+        if (layout == H5D_CHUNKED) {
+            int ndims = H5Pget_chunk(dcpl, 2, dims);
+            if (ndims > 0) {
+                ctx->crows = dims[0];
+                ctx->ccols = dims[1];
+            } else {
+                ctx->crows = ctx->rows;
+                ctx->ccols = ctx->cols;
+            }
+        } else {
+            /* For VDS or other layouts, use dataset dimensions */
+            ctx->crows = ctx->rows;
+            ctx->ccols = ctx->cols;
+        }
+        
+        H5Pclose(dcpl);
     } else {
         // Default values for non-chunked datasets
         ctx->crows = 1;
         ctx->ccols = ctx->cols;
     }
-    H5Pclose(dcpl);
     H5Sclose(sp);
 
     ctx->base = H5Dget_offset(ctx->dset);
