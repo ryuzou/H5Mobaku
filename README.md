@@ -155,6 +155,10 @@ Options:
 
 #### h5m-create - CSV to HDF5 Converter
 
+##### CURRENTLY VDS FEATURE HAS A SEVERE BUG
+##### DO NOT USE VDS FEATURE; MERGE FILES AT THE APPLICATION LEVEL
+##### WILL FIX IT LATER
+
 The `h5m-create` tool converts CSV population data files to HDF5 format:
 
 ```bash
