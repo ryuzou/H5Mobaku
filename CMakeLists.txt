@@ -244,31 +244,52 @@ if(H5MR_BUILD_TESTS)
 endif()
 
 # ───────────────────────────────────
-#  CLI Tools
+#  CLI Tools (statically linked for portability)
 # ───────────────────────────────────
 option(H5MR_BUILD_CLI      "Build CLI tools"           ON)
 
 if(H5MR_BUILD_CLI)
+    # CLIツールは静的ライブラリとリンクしてポータブルに
+    if(NOT H5MR_BUILD_STATIC)
+        message(FATAL_ERROR "CLI tools require H5MR_BUILD_STATIC=ON")
+    endif()
+
     add_executable(h5m-reader src/h5m-reader.c)
-    target_link_libraries(h5m-reader PRIVATE H5MR::h5mr ${CMPH_LIBRARIES})
+    target_link_libraries(h5m-reader PRIVATE
+        h5mr_static
+        ${HDF5_C_LIBRARIES}
+        ${LIBURING_LIBRARIES}
+        ${CMPH_LIBRARIES}
+    )
     target_link_directories(h5m-reader PRIVATE ${LOCAL_INCLUDE}/lib)
-    target_include_directories(h5m-reader PRIVATE ${CMPH_INCLUDE_DIRS})
+    target_include_directories(h5m-reader PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMPH_INCLUDE_DIRS}
+    )
     set_target_properties(h5m-reader PROPERTIES
         C_STANDARD 23
         C_STANDARD_REQUIRED ON
     )
-    add_dependencies(h5m-reader ${H5MR_MAIN_TARGET})
-    
+    add_dependencies(h5m-reader h5mr_static)
+
     add_executable(h5m-create src/h5m-create.c)
-    target_link_libraries(h5m-create PRIVATE H5MR::h5mr ${CMPH_LIBRARIES} ${HDF5_C_LIBRARIES})
+    target_link_libraries(h5m-create PRIVATE
+        h5mr_static
+        ${HDF5_C_LIBRARIES}
+        ${LIBURING_LIBRARIES}
+        ${CMPH_LIBRARIES}
+    )
     target_link_directories(h5m-create PRIVATE ${LOCAL_INCLUDE}/lib)
-    target_include_directories(h5m-create PRIVATE ${CMPH_INCLUDE_DIRS})
+    target_include_directories(h5m-create PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/include
+        ${CMPH_INCLUDE_DIRS}
+    )
     set_target_properties(h5m-create PROPERTIES
         C_STANDARD 23
         C_STANDARD_REQUIRED ON
     )
-    add_dependencies(h5m-create ${H5MR_MAIN_TARGET})
-    
+    add_dependencies(h5m-create h5mr_static)
+
     # Install CLI tools
     install(TARGETS h5m-reader h5m-create
             RUNTIME DESTINATION bin
