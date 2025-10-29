@@ -57,9 +57,78 @@ endif()
 set(CMPH_INCLUDE_DIRS ${LOCAL_INCLUDE}/include)
 set(CMPH_LIBRARIES cmph)
 
+# ───────────────────────────────────
+#  Architecture-aware meshid hash generation
+# ───────────────────────────────────
+# Detect target architecture for objcopy
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+    set(OBJCOPY_ARCH "elf64-x86-64")
+    set(OBJCOPY_BINARY_ARCH "i386")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64|arm64")
+    set(OBJCOPY_ARCH "elf64-littleaarch64")
+    set(OBJCOPY_BINARY_ARCH "aarch64")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "armv7")
+    set(OBJCOPY_ARCH "elf32-littlearm")
+    set(OBJCOPY_BINARY_ARCH "arm")
+else()
+    message(WARNING "Unknown architecture ${CMAKE_SYSTEM_PROCESSOR}, defaulting to x86-64")
+    set(OBJCOPY_ARCH "elf64-x86-64")
+    set(OBJCOPY_BINARY_ARCH "i386")
+endif()
+
+# Generate meshid object files at build time
+set(MESHID_GENERATED_DIR "${CMAKE_BINARY_DIR}/generated/meshids")
+file(MAKE_DIRECTORY ${MESHID_GENERATED_DIR})
+
+# Check if cmph command is available
+find_program(CMPH_BINARY cmph)
+if(NOT CMPH_BINARY)
+    message(FATAL_ERROR "cmph command not found. Please install CMPH library tools.")
+endif()
+
+set(MESHID_MOBAKU_O "${MESHID_GENERATED_DIR}/meshid_mobaku.o")
+set(MESHID_MOBAKU_MPH_O "${MESHID_GENERATED_DIR}/meshid_mobaku_mph.o")
+set(MESHID_MOBAKU_MPH "${MESHID_GENERATED_DIR}/meshid_mobaku.mph")
+
+# Generate .mph file from .txt using cmph
+set(MESHID_TXT_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/external/meshids/src/meshid_1_2rd_list.txt")
+add_custom_command(
+    OUTPUT ${MESHID_MOBAKU_MPH}
+    COMMAND ${CMPH_BINARY} -g -m ${MESHID_MOBAKU_MPH} ${MESHID_TXT_SOURCE}
+    DEPENDS ${MESHID_TXT_SOURCE}
+    COMMENT "Generating minimal perfect hash file meshid_mobaku.mph from meshid_1_2rd_list.txt"
+    VERBATIM
+)
+
+# Compile meshid_mobaku.c -> meshid_mobaku.o
+add_custom_command(
+    OUTPUT ${MESHID_MOBAKU_O}
+    COMMAND ${CMAKE_C_COMPILER} -c
+        ${CMAKE_CURRENT_SOURCE_DIR}/external/meshids/src/meshid_mobaku.c
+        -o ${MESHID_MOBAKU_O}
+    DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/external/meshids/src/meshid_mobaku.c
+    COMMENT "Compiling meshid_mobaku.c for ${CMAKE_SYSTEM_PROCESSOR}"
+    VERBATIM
+)
+
+# Convert meshid_mobaku.mph -> meshid_mobaku_mph.o using objcopy
+# Use a wrapper script to make symbol renaming portable across different paths
+add_custom_command(
+    OUTPUT ${MESHID_MOBAKU_MPH_O}
+    COMMAND ${CMAKE_COMMAND} -E env
+        SOURCE_FILE=${MESHID_MOBAKU_MPH}
+        OUTPUT_FILE=${MESHID_MOBAKU_MPH_O}
+        OBJCOPY_ARCH=${OBJCOPY_ARCH}
+        OBJCOPY_BINARY_ARCH=${OBJCOPY_BINARY_ARCH}
+        ${CMAKE_COMMAND} -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/generate_mph_object.cmake
+    DEPENDS ${MESHID_MOBAKU_MPH}
+    COMMENT "Converting meshid_mobaku.mph to object file for ${CMAKE_SYSTEM_PROCESSOR}"
+    VERBATIM
+)
+
 SET(OBJS
-        ${CMAKE_CURRENT_SOURCE_DIR}/external/meshids/meshid_mobaku.o
-        ${CMAKE_CURRENT_SOURCE_DIR}/external/meshids/meshid_mobaku_mph.o
+        ${MESHID_MOBAKU_O}
+        ${MESHID_MOBAKU_MPH_O}
 )
 
 # ───────────────────────────────────
