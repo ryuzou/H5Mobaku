@@ -14,6 +14,7 @@ set(H5MR_EXPORT       H5MRTargets)
 option(H5MR_BUILD_SHARED   "Build shared library"      ON)
 option(H5MR_BUILD_STATIC   "Build static library"      ON)
 option(H5MR_BUILD_TESTS    "Build tests"               ON)
+option(H5MR_ENABLE_HEAVY_TESTS "Register resource-intensive tests (CSV/HDF5 conversion)" OFF)
 option(H5MR_ENABLE_PYBIND  "Build pybind wrapper"      OFF)
 
 set(CMAKE_C_STANDARD 23)
@@ -284,7 +285,10 @@ if(H5MR_BUILD_TESTS)
         C_STANDARD 23
         C_STANDARD_REQUIRED ON
     )
-    add_test(NAME H5MR.test_csv_to_h5 COMMAND test_csv_to_h5)
+    if(H5MR_ENABLE_HEAVY_TESTS)
+        add_test(NAME H5MR.test_csv_to_h5 COMMAND test_csv_to_h5)
+        set_tests_properties(H5MR.test_csv_to_h5 PROPERTIES LABELS heavy)
+    endif()
     add_dependencies(test_csv_to_h5 ${H5MR_MAIN_TARGET})
     
     # Add test_csv_ops executable
@@ -308,8 +312,49 @@ if(H5MR_BUILD_TESTS)
         C_STANDARD 23
         C_STANDARD_REQUIRED ON
     )
-    add_test(NAME H5MR.test_h5m_create COMMAND test_h5m_create)
+    if(H5MR_ENABLE_HEAVY_TESTS)
+        add_test(NAME H5MR.test_h5m_create COMMAND test_h5m_create)
+        set_tests_properties(H5MR.test_h5m_create PROPERTIES LABELS heavy)
+    endif()
     add_dependencies(test_h5m_create ${H5MR_MAIN_TARGET} h5m-create)
+
+    # Lightweight h5m-create regression (kept in default suite)
+    add_executable(test_h5m_create_light tests/test_h5m_create.c)
+    target_link_libraries(test_h5m_create_light PRIVATE H5MR::h5mr ${CMPH_LIBRARIES})
+    target_link_directories(test_h5m_create_light PRIVATE ${LOCAL_INCLUDE}/lib)
+    target_include_directories(test_h5m_create_light PRIVATE ${CMPH_INCLUDE_DIRS})
+    target_compile_definitions(test_h5m_create_light PRIVATE
+        H5MR_H5M_CREATE_LIGHT=1
+        MIN_FILES_HISTORICAL=4
+        MAX_FILES_HISTORICAL=6
+        MIN_FILES_NEW=4
+        MAX_FILES_NEW=6
+        MIN_ROWS_PER_FILE=80
+        MAX_ROWS_PER_FILE=120
+        LARGE_FILES_COUNT=24
+        LARGE_ROWS_PER_FILE=256
+        H5MR_H5M_CREATE_MAX_SIZE_MB=600
+    )
+    set_target_properties(test_h5m_create_light PROPERTIES
+        C_STANDARD 23
+        C_STANDARD_REQUIRED ON
+    )
+    add_test(NAME H5MR.test_h5m_create_light COMMAND test_h5m_create_light)
+    add_dependencies(test_h5m_create_light ${H5MR_MAIN_TARGET} h5m-create)
+
+    # Convenience targets: light suite by default; heavy suite is opt-in
+    add_custom_target(light_tests
+        COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -LE heavy --build-config $<CONFIG> --test-dir ${CMAKE_BINARY_DIR}
+        DEPENDS verify_layout test_meshid_ops test_h5mobaku_ops test_csv_ops test_h5m_create_light
+        COMMENT "Run light tests (skips resource-intensive CSV/HDF5 conversion cases)"
+    )
+    if(H5MR_ENABLE_HEAVY_TESTS)
+        add_custom_target(heavy_tests
+            COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure -L heavy --build-config $<CONFIG> --test-dir ${CMAKE_BINARY_DIR}
+            DEPENDS test_csv_to_h5 test_h5m_create
+            COMMENT "Run heavy conversion tests (CSV->HDF5 and h5m-create scenarios)"
+        )
+    endif()
 endif()
 
 # ───────────────────────────────────

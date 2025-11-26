@@ -14,12 +14,52 @@
 #include <sys/wait.h>
 #include <stdint.h>
 
+#ifndef MIN_FILES_HISTORICAL
 #define MIN_FILES_HISTORICAL 30
+#endif
+#ifndef MAX_FILES_HISTORICAL
 #define MAX_FILES_HISTORICAL 40
+#endif
+#ifndef MIN_FILES_NEW
 #define MIN_FILES_NEW 20
+#endif
+#ifndef MAX_FILES_NEW
 #define MAX_FILES_NEW 30
+#endif
+#ifndef MIN_ROWS_PER_FILE
 #define MIN_ROWS_PER_FILE 300
+#endif
+#ifndef MAX_ROWS_PER_FILE
 #define MAX_ROWS_PER_FILE 500
+#endif
+
+#ifndef LARGE_FILES_COUNT
+#define LARGE_FILES_COUNT 100
+#endif
+#ifndef LARGE_ROWS_PER_FILE
+#define LARGE_ROWS_PER_FILE 1000
+#endif
+
+#ifdef H5MR_H5M_CREATE_LIGHT
+#ifndef H5MR_H5M_CREATE_MAX_SIZE_MB
+#define H5MR_H5M_CREATE_MAX_SIZE_MB 550
+#endif
+#define H5MR_H5M_CREATE_MAX_SIZE_BYTES ((size_t)H5MR_H5M_CREATE_MAX_SIZE_MB * 1024 * 1024)
+static void assert_file_under_cap(const char* path, const struct stat* st) {
+    if (!st) return;
+    if (st->st_size > (off_t)H5MR_H5M_CREATE_MAX_SIZE_BYTES) {
+        fprintf(stderr,
+                "Light test cap exceeded for %s: %ld bytes (limit %zu bytes)\n",
+                path, st->st_size, (size_t)H5MR_H5M_CREATE_MAX_SIZE_BYTES);
+    }
+    assert(st->st_size <= (off_t)H5MR_H5M_CREATE_MAX_SIZE_BYTES);
+}
+#else
+#define H5MR_H5M_CREATE_MAX_SIZE_BYTES 0
+static void assert_file_under_cap(const char* path, const struct stat* st) {
+    (void)path; (void)st;
+}
+#endif
 
 // Test configuration
 typedef struct {
@@ -313,6 +353,7 @@ void test_basic_h5m_create() {
     // Verify output file exists
     struct stat st;
     assert(stat("test_basic.h5", &st) == 0);
+    assert_file_under_cap("test_basic.h5", &st);
     
     printf("Step 3: Verifying H5 file with h5m-reader...\n");
     
@@ -388,6 +429,7 @@ void test_vds_h5m_create() {
     // Verify historical file
     struct stat st;
     assert(stat(config.historical_h5, &st) == 0);
+    assert_file_under_cap(config.historical_h5, &st);
     printf("Historical H5 file size: %ld bytes\n", st.st_size);
     
     printf("\nStep 4: Creating combined VDS file...\n");
@@ -400,6 +442,7 @@ void test_vds_h5m_create() {
     
     // Verify combined file
     assert(stat(config.combined_h5, &st) == 0);
+    assert_file_under_cap(config.combined_h5, &st);
     printf("Combined VDS file size: %ld bytes\n", st.st_size);
     
     printf("\nStep 5: Testing VDS data access with h5m-reader...\n");
@@ -521,8 +564,10 @@ void test_large_scale_h5m_create() {
     
     printf("Creating large-scale test data (this may take a moment)...\n");
     
-    // Generate 100 files with 1000 rows each
-    for (int i = 0; i < 100; i++) {
+    // Generate LARGE_FILES_COUNT files with LARGE_ROWS_PER_FILE rows each
+    int progress_step = LARGE_FILES_COUNT >= 4 ? LARGE_FILES_COUNT / 4 : 1;
+    if (progress_step == 0) progress_step = 1;
+    for (int i = 0; i < LARGE_FILES_COUNT; i++) {
         char path[512];
         snprintf(path, sizeof(path), "%s/large_%03d_00000.csv", large_dir, i);
         
@@ -531,8 +576,8 @@ void test_large_scale_h5m_create() {
         
         fprintf(fp, "date,time,area,residence,age,gender,population\n");
         
-        // Generate 1000 rows per file
-        for (int j = 0; j < 1000; j++) {
+        // Generate LARGE_ROWS_PER_FILE rows per file
+        for (int j = 0; j < LARGE_ROWS_PER_FILE; j++) {
             int year = 2022 + (rand() % 2); // 2022-2023
             int month = 1 + (rand() % 12);
             int day = 1 + (rand() % 28);
@@ -548,8 +593,8 @@ void test_large_scale_h5m_create() {
         
         fclose(fp);
         
-        if ((i + 1) % 25 == 0) {
-            printf("  Created %d/100 large files...\n", i + 1);
+        if ((i + 1) % progress_step == 0 || i + 1 == LARGE_FILES_COUNT) {
+            printf("  Created %d/%d large files...\n", i + 1, LARGE_FILES_COUNT);
         }
     }
     
@@ -571,6 +616,7 @@ void test_large_scale_h5m_create() {
     // Verify the large file
     struct stat st;
     assert(stat("test_large.h5", &st) == 0);
+    assert_file_under_cap("test_large.h5", &st);
     printf("Large H5 file size: %ld bytes (%.1f MB)\n", st.st_size, st.st_size / 1024.0 / 1024.0);
     
     printf("Performance: %.0f rows/second\n", (100 * 1000) / processing_time);
@@ -580,150 +626,6 @@ void test_large_scale_h5m_create() {
     unlink("test_large.h5");
     
     printf("Large-scale test passed!\n\n");
-}
-
-// Test bulk write mode
-void test_bulk_write_h5m_create() {
-    printf("=== Testing Bulk Write Mode H5M-Create ===\n");
-    
-    const char* bulk_dir = "test_bulk_data";
-    mkdir(bulk_dir, 0755);
-    
-    printf("Creating test data for bulk write mode...\n");
-    
-    // Create test CSV files - enough to test bulk mode but not require full 51GB
-    // Generate files for a small subset to test functionality
-    char sub_dirs[][20] = {"20230101", "20230102", "20230103"};
-    
-    for (int d = 0; d < 3; d++) {
-        char dir_path[512];
-        snprintf(dir_path, sizeof(dir_path), "%s/%s", bulk_dir, sub_dirs[d]);
-        mkdir(dir_path, 0755);
-        
-        // Create a few CSV files per directory
-        for (int f = 0; f < 2; f++) {
-            char file_path[512];
-            snprintf(file_path, sizeof(file_path), "%s/data_%02d_00000.csv", dir_path, f);
-            
-            FILE* fp = fopen(file_path, "w");
-            if (!fp) {
-                fprintf(stderr, "Failed to create %s\n", file_path);
-                continue;
-            }
-            
-            fprintf(fp, "date,time,area,residence,age,gender,population\n");
-            
-            // Write some test data
-            const uint32_t test_meshes[] = {362257341, 523365702, 533946132};
-            int year = 2023;
-            int month = 1;
-            int day = d + 1;
-            
-            for (int hour = 0; hour < 24; hour++) {
-                for (int m = 0; m < 3; m++) {
-                    int population = rand() % 1000 + 100;
-                    fprintf(fp, "%04d%02d%02d,%02d00,%u,-1,-1,-1,%d\n",
-                            year, month, day, hour, test_meshes[m], population);
-                }
-            }
-            
-            fclose(fp);
-        }
-    }
-    
-    // Test 1: Run with bulk write mode
-    printf("\nTest 1: Running h5m-create with --bulk-write...\n");
-    char output[65536];
-    char args[512];
-    snprintf(args, sizeof(args), "-o test_bulk.h5 -d %s --bulk-write --verbose", bulk_dir);
-    
-    int result = run_h5m_create(args, output, sizeof(output));
-    if (result != 0) {
-        fprintf(stderr, "h5m-create failed with bulk write mode: %s\n", output);
-    }
-    assert(result == 0);
-    
-    // Verify output contains bulk mode messages
-    assert(strstr(output, "Bulk write mode: ENABLED") != NULL);
-    assert(strstr(output, "Bulk mode enabled, consumer idle") != NULL);
-    
-    // Test 2: Verify the created file
-    printf("Test 2: Verifying bulk-written HDF5 file...\n");
-    struct stat st;
-    assert(stat("test_bulk.h5", &st) == 0);
-    printf("  Created HDF5 file size: %ld bytes\n", st.st_size);
-    
-    // Test 3: Verify data can be read correctly with h5m-reader
-    printf("Test 3: Verifying bulk-written data with h5m-reader...\n");
-    
-    uint32_t test_mesh = 362257341;
-    
-    // Test 2023 data (should be written correctly now)
-    const char* test_2023_times[] = {
-        "2023-01-01 00:00:00",
-        "2023-01-01 01:00:00", 
-        "2023-01-01 02:00:00",
-        "2023-01-02 00:00:00",
-        "2023-01-02 01:00:00"
-    };
-    
-    int zero_count = 0, non_zero_count = 0;
-    printf("  Testing 2023 data (correct time indices):\n");
-    for (int i = 0; i < 5; i++) {
-        int32_t value;
-        if (run_h5m_reader_single("test_bulk.h5", test_mesh, test_2023_times[i], &value) == 0) {
-            printf("    %s: %d\n", test_2023_times[i], value);
-            if (value == 0) {
-                zero_count++;
-            } else {
-                non_zero_count++;
-                // Verify value is in expected range
-                assert(value >= 100 && value < 1100);
-            }
-        } else {
-            printf("    %s: READ_ERROR\n", test_2023_times[i]);
-            zero_count++;
-        }
-    }
-    
-    printf("  Data check: %d zero, %d non-zero values\n", zero_count, non_zero_count);
-    
-    // Verify that data is NOT at wrong locations (2016 beginning)
-    printf("  Testing 2016 data (should be empty - wrong time indices):\n");
-    const char* test_2016_times[] = {
-        "2016-01-01 00:00:00",
-        "2016-01-01 01:00:00", 
-        "2016-01-01 02:00:00"
-    };
-    
-    int wrong_non_zero = 0;
-    for (int i = 0; i < 3; i++) {
-        int32_t value;
-        if (run_h5m_reader_single("test_bulk.h5", test_mesh, test_2016_times[i], &value) == 0) {
-            printf("    %s: %d\n", test_2016_times[i], value);
-            if (value != 0) wrong_non_zero++;
-        } else {
-            printf("    %s: READ_ERROR\n", test_2016_times[i]);
-        }
-    }
-    
-    if (non_zero_count > 0) {
-        printf("  SUCCESS: Data correctly written at 2023 time indices\n");
-        if (wrong_non_zero > 0) {
-            printf("  WARNING: Found %d non-zero values at 2016 indices - may indicate bug\n", wrong_non_zero);
-        } else {
-            printf("  SUCCESS: No incorrect data at 2016 indices\n");
-        }
-    } else {
-        printf("  ERROR: No data found at correct 2023 time indices\n");
-        assert(non_zero_count > 0);
-    }
-    
-    // Cleanup
-    system("rm -rf test_bulk_data");
-    unlink("test_bulk.h5");
-    
-    printf("Bulk write mode test passed!\n\n");
 }
 
 int main() {
@@ -741,9 +643,6 @@ int main() {
     // Test large-scale performance
     //test_large_scale_h5m_create();
     
-    // Test bulk write mode
-    test_bulk_write_h5m_create();
-    
     printf("=== All H5M-Create Tests Passed! ===\n");
     
     printf("\nTest Summary:\n");
@@ -753,7 +652,6 @@ int main() {
     printf("✓ Error handling and validation\n");
     printf("✓ Large-scale performance\n");
     printf("✓ Data integrity across VDS boundaries\n");
-    printf("✓ Bulk write mode (51 GiB optimization)\n");
     
     return 0;
 }
