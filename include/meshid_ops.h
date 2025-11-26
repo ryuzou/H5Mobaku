@@ -69,6 +69,8 @@ cmph_t* meshid_prepare_search(void);
 // 検索関数
 #define MESHID_NOT_FOUND UINT32_MAX  // Error return value for search_id
 uint32_t meshid_search_id(cmph_t *hash, uint32_t key);
+int meshid_resolve_index(cmph_t *hash, uint32_t mesh_id, uint32_t *out_index);
+int meshid_resolve_indices(cmph_t *hash, const uint32_t *mesh_ids, size_t count, uint64_t *out_indices, size_t *failed_index);
 
 char** meshid_uint_array_to_string_array(const int* int_array, size_t nkeys);
 

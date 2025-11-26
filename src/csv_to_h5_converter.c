@@ -527,8 +527,8 @@ static void* enhanced_csv_reader_thread_func(void* arg) {
             }
             
             // Find mesh index
-            uint32_t mesh_idx = meshid_search_id(data->ctx->mesh_hash, (uint32_t)row.area);
-            if (mesh_idx == MESHID_NOT_FOUND) {
+            uint32_t mesh_idx = 0;
+            if (meshid_resolve_index(data->ctx->mesh_hash, (uint32_t)row.area, &mesh_idx) != 0) {
                 if (data->verbose) {
                     fprintf(stderr, "Thread %d: Unknown mesh ID %lu\n", 
                            data->thread_id, row.area);

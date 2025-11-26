@@ -198,12 +198,12 @@ void test_multi_producer_csv_to_h5() {
     assert(hash != NULL);
     
     int32_t test_value;
-    uint32_t mesh_idx = meshid_search_id(hash, 362257341);
-    if (mesh_idx != MESHID_NOT_FOUND) {
-        result = h5r_read_cell(reader, 0, mesh_idx, &test_value);
-        assert(result == 0);
-        printf("Sample data verification: mesh 362257341 at time 0 = %d\n", test_value);
-    }
+    uint32_t mesh_idx = 0;
+    assert(meshid_resolve_index(hash, 362257341, &mesh_idx) == 0);
+
+    result = h5r_read_cell(reader, 0, mesh_idx, &test_value);
+    assert(result == 0);
+    printf("Sample data verification: mesh 362257341 at time 0 = %d\n", test_value);
     
     h5mobaku_close(h5m_reader);
     h5r_close(reader);
@@ -277,9 +277,8 @@ void test_csv_conversion() {
     h5r_get_dimensions(reader, &time_points, &mesh_count);
     printf("DEBUG: Dataset dimensions: %zu time points, %zu mesh count\n", time_points, mesh_count);
     
-    mesh_idx = meshid_search_id(hash, 362257341);
+    assert(meshid_resolve_index(hash, 362257341, &mesh_idx) == 0);
     printf("DEBUG: Mesh ID 362257341 -> index %u\n", mesh_idx);
-    assert(mesh_idx != MESHID_NOT_FOUND);
     
     // 20160101,0100 -> time index 1 (01:00 is 1 hour from 00:00)
     result = h5r_read_cell(reader, 1, mesh_idx, &value);
@@ -287,20 +286,19 @@ void test_csv_conversion() {
     printf("DEBUG: Read from time 1, mesh index %u: got value %d (expected 100)\n", mesh_idx, value);
     assert(value == 100);
     
-    mesh_idx = meshid_search_id(hash, 362257342);
-    assert(mesh_idx != MESHID_NOT_FOUND);
+    assert(meshid_resolve_index(hash, 362257342, &mesh_idx) == 0);
     // 20160101,0100 -> time index 1
     result = h5r_read_cell(reader, 1, mesh_idx, &value);
     assert(result == 0);
     assert(value == 200);
     
-    mesh_idx = meshid_search_id(hash, 362257341);
+    assert(meshid_resolve_index(hash, 362257341, &mesh_idx) == 0);
     // 20160101,0200 -> time index 2 (02:00 is 2 hours from 00:00)
     result = h5r_read_cell(reader, 2, mesh_idx, &value);
     assert(result == 0);
     assert(value == 150);
     
-    mesh_idx = meshid_search_id(hash, 362257342);
+    assert(meshid_resolve_index(hash, 362257342, &mesh_idx) == 0);
     // 20160101,0200 -> time index 2
     result = h5r_read_cell(reader, 2, mesh_idx, &value);
     assert(result == 0);
@@ -356,8 +354,8 @@ void test_append_mode() {
     assert(hash != NULL);
     
     int32_t value;
-    uint32_t mesh_idx = meshid_search_id(hash, 362257341);
-    assert(mesh_idx != MESHID_NOT_FOUND);
+    uint32_t mesh_idx = 0;
+    assert(meshid_resolve_index(hash, 362257341, &mesh_idx) == 0);
     
     // Check first timestamp (20160101,0100 -> time index 1)
     result = h5r_read_cell(reader, 1, mesh_idx, &value);
@@ -430,7 +428,8 @@ void test_write_to_sparse_regions() {
     assert(result == 0);
     
     cmph_t* hash = meshid_prepare_search();
-    uint32_t mesh_idx = meshid_search_id(hash, 362257341);
+    uint32_t mesh_idx = 0;
+    assert(meshid_resolve_index(hash, 362257341, &mesh_idx) == 0);
     
     // Check the actual time indices where data was written (1, 2, 3 for 01:00, 02:00, 03:00)
     int32_t values[3];

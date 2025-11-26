@@ -7,6 +7,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <time.h>
+#include <limits.h>
 #include <assert.h>
 #include "meshid_ops.h"
 
@@ -49,6 +50,23 @@ int main() {
     // 結果を表示
     double time_taken = (double)(end_time - start_time) / CLOCKS_PER_SEC;
     printf("Time taken for %lu searches: %f seconds\n", meshid_list_size, time_taken);
+
+    uint32_t resolved_idx = 0;
+    assert(meshid_resolve_index(hash, keys[0], &resolved_idx) == 0);
+    assert(meshid_list[resolved_idx] == keys[0]);
+    assert(meshid_resolve_index(hash, 123, &resolved_idx) != 0);
+
+    uint64_t resolved_indices[2] = {0};
+    uint32_t mixed_ids[2] = {keys[0], 123};
+    size_t failed_at = SIZE_MAX;
+    assert(meshid_resolve_indices(hash, mixed_ids, 2, resolved_indices, &failed_at) != 0);
+    assert(failed_at == 1);
+
+    uint32_t valid_ids[2] = {keys[0], keys[1]};
+    failed_at = SIZE_MAX;
+    assert(meshid_resolve_indices(hash, valid_ids, 2, resolved_indices, &failed_at) == 0);
+    assert(resolved_indices[0] == meshid_search_id(hash, valid_ids[0]));
+    assert(resolved_indices[1] == meshid_search_id(hash, valid_ids[1]));
 
     // メモリ解放
     free(keys);

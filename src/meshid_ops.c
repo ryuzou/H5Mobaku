@@ -144,8 +144,8 @@ cmph_t * meshid_prepare_search(void) {
 
 uint32_t meshid_search_id(cmph_t *hash, uint32_t key) {
     // Special case handling
-    if (key == 684827214) {
-        return 1553331;
+    if (key == SPECIAL_MESH_ID) {
+        return SPECIAL_MESH_INDEX;
     }
     
     // Validate digit count
@@ -157,6 +157,51 @@ uint32_t meshid_search_id(cmph_t *hash, uint32_t key) {
     char key_str[11];
     meshid_uint_to_str(key, key_str);
     return cmph_search(hash, key_str, (cmph_uint32)strlen(key_str));
+}
+
+int meshid_resolve_index(cmph_t *hash, uint32_t mesh_id, uint32_t *out_index) {
+    if (!hash || !out_index) {
+        fprintf(stderr, "Error: Invalid parameters in meshid_resolve_index\n");
+        return -1;
+    }
+
+    uint32_t mesh_index = meshid_search_id(hash, mesh_id);
+    if (mesh_index == MESHID_NOT_FOUND) {
+        return -1;
+    }
+
+    if ((size_t)mesh_index >= meshid_list_size) {
+        fprintf(stderr, "Error: Mesh index %u out of range for mesh ID %u\n",
+                mesh_index, mesh_id);
+        return -1;
+    }
+
+    *out_index = mesh_index;
+    return 0;
+}
+
+int meshid_resolve_indices(cmph_t *hash, const uint32_t *mesh_ids, size_t count, uint64_t *out_indices, size_t *failed_index) {
+    if (!hash || !mesh_ids || !out_indices) {
+        fprintf(stderr, "Error: Invalid parameters in meshid_resolve_indices\n");
+        return -1;
+    }
+
+    if (failed_index) {
+        *failed_index = SIZE_MAX;
+    }
+
+    for (size_t i = 0; i < count; ++i) {
+        uint32_t index = 0;
+        if (meshid_resolve_index(hash, mesh_ids[i], &index) != 0) {
+            if (failed_index) {
+                *failed_index = i;
+            }
+            return -1;
+        }
+        out_indices[i] = (uint64_t)index;
+    }
+
+    return 0;
 }
 
 char ** meshid_uint_array_to_string_array(const int *int_array, size_t nkeys) {

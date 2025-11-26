@@ -35,12 +35,13 @@ static int validate_basic_params(struct h5r *h5_ctx, cmph_t *hash) {
     return 0;
 }
 
-static uint64_t get_mesh_index(cmph_t *hash, uint32_t mesh_id) {
-    uint32_t mesh_index = meshid_search_id(hash, mesh_id);
-    if (mesh_index == MESHID_NOT_FOUND || mesh_index >= MOBAKU_MESH_COUNT) {
-        return UINT64_MAX; // Error indicator
+static int resolve_mesh_index_u64(cmph_t *hash, uint32_t mesh_id, uint64_t *mesh_index) {
+    uint32_t index32 = 0;
+    if (meshid_resolve_index(hash, mesh_id, &index32) != 0) {
+        return -1;
     }
-    return (uint64_t)mesh_index;
+    *mesh_index = (uint64_t)index32;
+    return 0;
 }
 
 static void* safe_malloc(size_t size, const char *description) {
@@ -240,8 +241,8 @@ int32_t h5mobaku_read_population_single(struct h5r *h5_ctx, cmph_t *hash, uint32
         return -1;
     }
     
-    uint64_t mesh_index = get_mesh_index(hash, mesh_id);
-    if (mesh_index == UINT64_MAX) {
+    uint64_t mesh_index = 0;
+    if (resolve_mesh_index_u64(hash, mesh_id, &mesh_index) != 0) {
         fprintf(stderr, "Error: Mesh ID %u not found or invalid\n", mesh_id);
         return -1;
     }
@@ -272,14 +273,15 @@ int32_t* h5mobaku_read_population_multi(struct h5r *h5_ctx, cmph_t *hash, uint32
         return NULL;
     }
     
-    // Convert mesh IDs to indices
-    for (size_t i = 0; i < num_meshes; i++) {
-        mesh_indices[i] = get_mesh_index(hash, mesh_ids[i]);
-        if (mesh_indices[i] == UINT64_MAX) {
-            fprintf(stderr, "Error: Mesh ID %u not found or invalid\n", mesh_ids[i]);
-            cleanup_multi_arrays(mesh_indices, results);
-            return NULL;
+    size_t failed_index = SIZE_MAX;
+    if (meshid_resolve_indices(hash, mesh_ids, num_meshes, mesh_indices, &failed_index) != 0) {
+        if (failed_index < num_meshes) {
+            fprintf(stderr, "Error: Mesh ID %u not found or invalid\n", mesh_ids[failed_index]);
+        } else {
+            fprintf(stderr, "Error: Failed to resolve mesh indices\n");
         }
+        cleanup_multi_arrays(mesh_indices, results);
+        return NULL;
     }
     
     int ret = h5r_read_cells(h5_ctx, (uint64_t)time_index, mesh_indices, num_meshes, results);
@@ -300,8 +302,8 @@ int32_t* h5mobaku_read_population_time_series(struct h5r *h5_ctx, cmph_t *hash, 
         return NULL;
     }
     
-    uint64_t mesh_index = get_mesh_index(hash, mesh_id);
-    if (mesh_index == UINT64_MAX) {
+    uint64_t mesh_index = 0;
+    if (resolve_mesh_index_u64(hash, mesh_id, &mesh_index) != 0) {
         fprintf(stderr, "Error: Mesh ID %u not found or invalid\n", mesh_id);
         return NULL;
     }
@@ -346,9 +348,13 @@ h5mobaku_read_multi_mesh_time_series(struct h5r  *h5_ctx,
     TIC(map_ids);
     uint64_t *dcols = safe_malloc(num_meshes * sizeof(uint64_t), "dcols");
     if (!dcols) return NULL;
-    for (size_t i = 0; i < num_meshes; ++i) {
-        dcols[i] = get_mesh_index(hash, mesh_ids[i]);
-        if (dcols[i] == UINT64_MAX) { free(dcols); return NULL; }
+    size_t failed_index = SIZE_MAX;
+    if (meshid_resolve_indices(hash, mesh_ids, num_meshes, dcols, &failed_index) != 0) {
+        if (failed_index < num_meshes) {
+            fprintf(stderr, "Error: Mesh ID %u not found or invalid\n", mesh_ids[failed_index]);
+        }
+        free(dcols);
+        return NULL;
     }
     TOC(map_ids);
 
@@ -929,8 +935,8 @@ int h5mobaku_write_population_single(struct h5r *h5_ctx, cmph_t *hash, uint32_t 
         return -1;
     }
     
-    uint64_t mesh_index = get_mesh_index(hash, mesh_id);
-    if (mesh_index == UINT64_MAX) {
+    uint64_t mesh_index = 0;
+    if (resolve_mesh_index_u64(hash, mesh_id, &mesh_index) != 0) {
         fprintf(stderr, "Error: Mesh ID %u not found or invalid\n", mesh_id);
         return -1;
     }
@@ -953,14 +959,15 @@ int h5mobaku_write_population_multi(struct h5r *h5_ctx, cmph_t *hash, uint32_t *
     uint64_t *mesh_indices = (uint64_t*)safe_malloc(num_meshes * sizeof(uint64_t), "mesh indices");
     if (!mesh_indices) return -1;
     
-    // Convert mesh IDs to indices
-    for (size_t i = 0; i < num_meshes; i++) {
-        mesh_indices[i] = get_mesh_index(hash, mesh_ids[i]);
-        if (mesh_indices[i] == UINT64_MAX) {
-            fprintf(stderr, "Error: Mesh ID %u not found or invalid\n", mesh_ids[i]);
-            free(mesh_indices);
-            return -1;
+    size_t failed_index = SIZE_MAX;
+    if (meshid_resolve_indices(hash, mesh_ids, num_meshes, mesh_indices, &failed_index) != 0) {
+        if (failed_index < num_meshes) {
+            fprintf(stderr, "Error: Mesh ID %u not found or invalid\n", mesh_ids[failed_index]);
+        } else {
+            fprintf(stderr, "Error: Failed to resolve mesh indices\n");
         }
+        free(mesh_indices);
+        return -1;
     }
     
     int ret = h5r_write_cells(h5_ctx, (uint64_t)time_index, mesh_indices, values, num_meshes);

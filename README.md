@@ -246,6 +246,8 @@ This approach:
 ### Mesh ID Operations
 - `meshid_prepare_search()`: Initialize CMPH hash table
 - `meshid_search_id(hash, mesh_id)`: Get index for mesh ID
+- `meshid_resolve_index(hash, mesh_id, &out_index)`: Validate mesh ID and return dataset index
+- `meshid_resolve_indices(hash, mesh_ids, count, indices, &failed_index)`: Batch-translate mesh IDs with failure reporting
 - `meshid_get_time_index_from_datetime(datetime)`: Convert datetime to time index
 - `meshid_get_datetime_from_time_index(time_index)`: Convert time index to datetime
 

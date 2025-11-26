@@ -154,8 +154,8 @@ int main(int argc, char *argv[]) {
     }
     
     // Verify mesh ID exists
-    uint32_t mesh_index = meshid_search_id(hash, mesh_id);
-    if (mesh_index == MESHID_NOT_FOUND) {
+    uint32_t mesh_index = 0;
+    if (meshid_resolve_index(hash, mesh_id, &mesh_index) != 0) {
         fprintf(stderr, "Error: Mesh ID %u not found\n", mesh_id);
         cmph_destroy(hash);
         h5mobaku_close(ctx);
