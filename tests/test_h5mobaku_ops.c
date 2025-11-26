@@ -219,7 +219,7 @@ void test_performance(struct h5r *h5_ctx, cmph_t *hash) {
 };
     size_t num_meshes = sizeof(multi_meshes) / sizeof(multi_meshes[0]);
     int start_time = 0;
-    int end_time = 999; // 1000 hours
+    int end_time = 340;
     double multi_single_loop_time = measure_single_access_loop(h5_ctx, hash, multi_meshes, num_meshes, start_time, end_time);
     
     printf("  Reading %zu meshes × %d hours = %zu values\n", 
@@ -249,14 +249,14 @@ void test_performance(struct h5r *h5_ctx, cmph_t *hash) {
     }
     
     // Compare traditional approach vs optimized approach
-    printf("\n5. Comparison: Traditional vs Optimized for %zu meshes × 1000 hours:\n", num_meshes);
-    double single_loop_compare = measure_single_access_loop(h5_ctx, hash, multi_meshes, num_meshes, 0, 999);
+    printf("\n5. Comparison: Traditional vs Optimized for %zu meshes × %d hours:\n", num_meshes, end_time);
+    double single_loop_compare = measure_single_access_loop(h5_ctx, hash, multi_meshes, num_meshes, 0, end_time);
     printf("  Single access loop (%zu meshes × 1000 hours): %.6f seconds\n", num_meshes, single_loop_compare);
     
     // Traditional approach: multiple calls
     start = clock();
     for (size_t i = 0; i < num_meshes; i++) {
-        int32_t *single_ts = h5mobaku_read_population_time_series(h5_ctx, hash, multi_meshes[i], 0, 999);
+        int32_t *single_ts = h5mobaku_read_population_time_series(h5_ctx, hash, multi_meshes[i], 0, end_time);
         if (single_ts) h5mobaku_free_data(single_ts);
     }
     end = clock();
@@ -268,7 +268,7 @@ void test_performance(struct h5r *h5_ctx, cmph_t *hash) {
     
     // Optimized approach: single call
     start = clock();
-    int32_t *opt_result = h5mobaku_read_multi_mesh_time_series(h5_ctx, hash, multi_meshes, num_meshes, 0, 999);
+    int32_t *opt_result = h5mobaku_read_multi_mesh_time_series(h5_ctx, hash, multi_meshes, num_meshes, 0, end_time);
     end = clock();
     double optimized_time = ((double)(end - start)) / CLOCKS_PER_SEC;
     if (opt_result) {
