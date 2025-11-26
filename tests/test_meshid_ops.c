@@ -55,6 +55,8 @@ int main() {
     assert(meshid_resolve_index(hash, keys[0], &resolved_idx) == 0);
     assert(meshid_list[resolved_idx] == keys[0]);
     assert(meshid_resolve_index(hash, 123, &resolved_idx) != 0);
+    assert(meshid_search_id(hash, 123) == MESHID_NOT_FOUND);
+    assert(meshid_search_id(hash, 674026970) == MESHID_NOT_FOUND);
 
     uint64_t resolved_indices[2] = {0};
     uint32_t mixed_ids[2] = {keys[0], 123};

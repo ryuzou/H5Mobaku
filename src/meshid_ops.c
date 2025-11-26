@@ -156,7 +156,20 @@ uint32_t meshid_search_id(cmph_t *hash, uint32_t key) {
     
     char key_str[11];
     meshid_uint_to_str(key, key_str);
-    return cmph_search(hash, key_str, (cmph_uint32)strlen(key_str));
+    uint32_t mesh_index = cmph_search(hash, key_str, (cmph_uint32)strlen(key_str));
+
+    // Forward validation against canonical list to avoid false positives
+    if (mesh_index == MESHID_NOT_FOUND || mesh_index >= meshid_list_size) {
+        fprintf(stderr, "Error: Mesh ID %u not found (index out of range)\n", key);
+        return MESHID_NOT_FOUND;
+    }
+
+    if (meshid_list[mesh_index] != key) {
+        fprintf(stderr, "Error: Mesh ID %u not found (hash mismatch)\n", key);
+        return MESHID_NOT_FOUND;
+    }
+
+    return mesh_index;
 }
 
 int meshid_resolve_index(cmph_t *hash, uint32_t mesh_id, uint32_t *out_index) {
