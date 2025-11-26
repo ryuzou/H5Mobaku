@@ -268,7 +268,7 @@ void test_performance(struct h5r *h5_ctx, cmph_t *hash) {
     
     // Optimized approach: single call
     start = clock();
-    int32_t *opt_result = h5mobaku_read_multi_mesh_time_series(h5_ctx, hash, multi_meshes, num_meshes, 0, 9999);
+    int32_t *opt_result = h5mobaku_read_multi_mesh_time_series(h5_ctx, hash, multi_meshes, num_meshes, 0, 999);
     end = clock();
     double optimized_time = ((double)(end - start)) / CLOCKS_PER_SEC;
     if (opt_result) {
